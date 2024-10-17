@@ -226,9 +226,7 @@ impl BusinessLogicContext {
         // Logik zum Bezahlen einer Bolt11-Rechnung
         log::info!("Paid invoice {} as Matrix user {}", bolt11_invoice, matrix_id);
         Ok(())
-        }
     }
-
     
     async fn do_process_invoice(&self,
                                 sender: &str,
