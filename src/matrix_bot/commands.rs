@@ -1,10 +1,11 @@
 use simple_error::{bail, SimpleError, try_with};
+use regex::Regex;
 
 #[derive(Debug)]
 pub enum Command  {
     Tip     { sender: String, amount: u64, memo: Option<String>, replyee: String },
     Balance { sender: String },
-    Send    { sender: String, amount: u64, recipient: String, memo: Option<String> },
+    Send    { sender: String, amount: u64, recipient: String, memo: Option<String>, is_lightning_address: bool },
     Invoice { sender: String, amount: u64, memo: Option<String> },
     Pay     { sender: String, invoice: String },
     Help    {  },
@@ -50,21 +51,41 @@ pub fn balance(sender:&str)  -> Result<Command, SimpleError> {
     Ok(Command::Balance { sender: String::from(sender) } )
 }
 
-pub fn send(sender:&str,
-            text: &str) -> Result<Command, SimpleError> {
+pub fn send(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
-
-    if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+    if split.len() < 3 {
+        bail!("Expected at least 3 arguments: !send <recipient> <amount> [memo]");
     }
-    let amount =  try_with!(split[1].parse::<u64>(), "could not parse value");
-    let recipient = String::from(split[2]);
-    let memo = if split.len() > 3 { Some(split[3..].join(" ") )  }
-    else { None };
-    Ok(Command::Send {  sender:String::from(sender),
-                        amount,
-                        recipient,
-                        memo })
+
+    let recipient = split[1];
+    let amount = split[2].parse::<u64>().map_err(|_| SimpleError::new("Invalid amount"))?;
+    let memo = if split.len() > 3 {
+        Some(split[3..].join(" "))
+    } else {
+        None
+    };
+
+    // Prüfen, ob der Empfänger eine Lightning-Adresse ist
+    let lightning_address_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    if lightning_address_regex.is_match(recipient) {
+        // Wenn es sich um eine Lightning-Adresse handelt, entsprechende Command zurückgeben
+        return Ok(Command::Send {
+            sender: sender.to_string(),
+            recipient: recipient.to_string(),
+            amount,
+            memo,
+            is_lightning_address: true,
+        });
+    }
+
+    // Wenn es sich nicht um eine Lightning-Adresse handelt, normales Senden an Matrix-User
+    Ok(Command::Send {
+        sender: sender.to_string(),
+        recipient: recipient.to_string(),
+        amount,
+        memo,
+        is_lightning_address: false,
+    })
 }
 
 pub fn invoice(sender:&str,
