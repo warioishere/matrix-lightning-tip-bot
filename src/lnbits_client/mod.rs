@@ -214,6 +214,44 @@ pub mod lnbits_client {
             Ok(response)
         }
 
+        pub async fn generate_invoice_for_lightning_address(
+            &self,
+            lightning_address: &str,
+            amount: u64,
+            memo: Option<String>
+        ) -> Result<String, SimpleError> {
+        // Hier könnte man eine Logik zur Kommunikation mit der LNBits-API hinzufügen,
+        // um eine Bolt11-Rechnung zu erzeugen, basierend auf der Lightning-Adresse.
+
+        // Placeholder: Nutze dieselbe Logik wie beim Invoice generieren
+            let invoice_params = InvoiceParams {
+                out: false,
+                amount: amount as i64,
+                memo,
+                webhook: None,
+                description_hash: None,
+            };
+
+            // Angenommen, wir nutzen die `/api/v1/payments` Endpoint für die Invoice-Generierung
+            let response = reqwest::Client::new()
+                .post([self.url.as_str(), "/api/v1/payments"].join(""))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("X-Api-Key", self.header[2].1.clone())
+                .json(&invoice_params)
+                .send()
+                .await
+                .map_err(|e| SimpleError::new(e.to_string()))?;
+
+            let invoice: BitInvoice = response
+                    .json()
+                    .await
+                    .map_err(|e| SimpleError::new(e.to_string()))?;
+
+                Ok(invoice.payment_request)
+            }
+        }
+
         // AE: Funny how the telegram bot tries to put the answer of this into a BitInvoice, I wouldn't
         pub async fn pay(&self,
                          wallet: &Wallet,
