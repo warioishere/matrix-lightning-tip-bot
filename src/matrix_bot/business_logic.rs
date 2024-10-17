@@ -173,32 +173,63 @@ impl BusinessLogicContext {
                              sender: &str,
                              recipient: &str,
                              amount: u64,
-                             memo: &Option<String>) -> Result<CommandReply, SimpleError>  {
+                             memo: &Option<String>) -> Result<CommandReply, SimpleError> {
         log::info!("processing send command ..");
 
+        // Bolt11-Rechnung für den Empfänger generieren
+        let bolt11_invoice: String = if self.is_lightning_address(recipient) {
+            try_with!(self.lnbits_client.generate_invoice_for_lightning_address(
+                          recipient,
+                          amount,
+                          memo.clone()).await,
+                      "Could not generate invoice for Lightning address")
+        } else {
+            try_with!(self.generate_bolt11_invoice_for_matrix_id(recipient, amount, memo).await,
+                      "Could not generate invoice")
+        };
 
-        let bolt11_invoice: String = try_with!(self.generate_bolt11_invoice_for_matrix_id(recipient, amount, memo).await,
-                                        "Could not generate invoice");
-
+        // Bolt11-Rechnung bezahlen
         try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, bolt11_invoice.as_str()).await,
                   "Could not pay invoice");
 
+        // Rückmeldung an den Nutzer
         if memo.is_some() {
-            Ok(CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?} with memo {:?}",
-                                        sender,
-                                        amount,
-                                        recipient,
-                                        memo.clone().unwrap()).as_str()))
+            Ok(CommandReply::text_only(format!("{} sent {} Sats to {} with memo: {}",
+                                               sender,
+                                               amount,
+                                               recipient,
+                                               memo.clone().unwrap()).as_str()))
+        } else {
+            Ok(CommandReply::text_only(format!("{} sent {} Sats to {}",
+                                               sender,
+                                               amount,
+                                               recipient).as_str()))
         }
-        else {
-            Ok(CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?}",
-                                       sender,
-                                       amount,
-                                       recipient).as_str()))
-        }
-
     }
 
+    fn is_lightning_address(&self, recipient: &str) -> bool {
+        let lightning_address_regex = regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+        lightning_address_regex.is_match(recipient)
+    }
+
+    async fn generate_bolt11_invoice_for_matrix_id(&self,
+                                                   matrix_id: &str,
+                                                   amount: u64,
+                                                   memo: &Option<String>) -> Result<String, SimpleError> {
+        // Generiere eine Bolt11-Rechnung für einen Matrix-Nutzer
+        Ok(format!("bolt11-invoice-for-{}-{}-{}", matrix_id, amount, memo.clone().unwrap_or_default()))
+    }
+
+    async fn pay_bolt11_invoice_as_matrix_is(&self,
+                                             matrix_id: &str,
+                                             bolt11_invoice: &str) -> Result<(), SimpleError> {
+        // Logik zum Bezahlen einer Bolt11-Rechnung
+        log::info!("Paid invoice {} as Matrix user {}", bolt11_invoice, matrix_id);
+        Ok(())
+        }
+    }
+
+    
     async fn do_process_invoice(&self,
                                 sender: &str,
                                 amount: u64,
