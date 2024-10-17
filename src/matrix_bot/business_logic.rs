@@ -55,7 +55,7 @@ impl BusinessLogicContext {
                                                &memo).await,
                                                "Could not process tip.")
             },
-            Command::Send { sender, amount, recipient, memo } => {
+            Command::Send { sender, amount, recipient, memo, is_lightning_address } => {
                 try_with!(self.do_process_send(sender.as_str(),
                                                recipient.as_str(),
                                                amount,
