@@ -1,7 +1,7 @@
  # About
 Matrix-Lightning-Tip-Bot (MLTB) is a lightning network BTC tip bot for the matrix network. It is inspired by the LightningTipBot Telegram project at https://github.com/LightningTipBot/LightningTipBot.
 
-@AE9999 forked this project so he is the main actor here and all appreciations belong to him
+@AE9999 has started this project so he is the main actor here and all appreciations belong to him. Just updating and adding new functions here.
 
 # Warning
 While I have tested this bot, it is in 'beta', don't put in more than you are willing to lose.
@@ -88,6 +88,8 @@ See https://docs.docker.com/compose/environment-variables/ for more information.
 The developer has public matrix room at `#matrix-lightning-tip-bot-discussion:s-software-solutions.nl`
 # BTC Donations
 Non lightning BTC donations are welcome at `bc1q72dzh04fwxx780w05twtmn5fxzegpawdn5zg3g`
+
+Contributors lightning adress (me) = node-runner@btcpay.yourdevice.ch
 
 # Thanks
 A big thanks the people over at LightningTipBot and @AE9999. This fork-project is in no way ment to replace or critique the great work they have been doing, merely to give more people access to the lightning network.
