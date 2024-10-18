@@ -15,15 +15,15 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 ```
 !tip     - Reply to a message to tip it: !tip <amount> [<memo>]
 !balance - Check your balance: !balance
-!send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com> [<memo>]
+!send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]
 !invoice - Receive over Lightning: !invoice <amount> [<memo>]
 !pay     - Pay  over Lightning: !pay <invoice>
 !help    - Read this help.\n\
 !donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>
 !party   - Start a Party: !party
-!version - Print the version of this bot
 !fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>
 !sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>
+!version - Print the version of this bot
 ```
 
 My MLTB instance runs on this LightningNode https://amboss.space/node/034efe9ae4eecacc0a2d7cdff59852665398968cfea347185479cc049ccac5e8ec
