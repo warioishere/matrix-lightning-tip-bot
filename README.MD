@@ -95,7 +95,7 @@ Contributors lightning address (me) = node-runner@btcpay.yourdevice.ch
 A big thanks the people over at LightningTipBot and @AE9999. This fork-project is in no way ment to replace or critique the great work they have been doing, merely to give more people access to the lightning network.
 
 # Scheduled TODOs
-- make this use with a bot registered on your homeserver instead of a user-account
+- make this work as an registered AS (Application Service) on your matrix homeserver instead of using a a matrix-user-account
 - limit usage to specific matrix instances
 - Inform users about donated funds.
 - Graceliously handle multiple bots is a single
