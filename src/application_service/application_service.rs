@@ -1,30 +1,25 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use std::future::Future;
+
 use tokio::sync::mpsc;
 use reqwest::cookie::Jar;
 use reqwest::{Client, ClientBuilder};
 use std::sync::Mutex;
-use http::Method;
+use http::{HeaderMap, Method};
 use ruma::api::client::sync::sync_events::DeviceLists;
 use serde::{Deserialize, Serialize};
 use warp::{Filter, Rejection};
 use crate::application_service::registration::Registration;
 use crate::application_service::txnid::TransactionIDCache;
-use bytes::Bytes;
 use ruma::api::{
     IncomingRequest,
 };
-use crate::application_service::http_methods::query_user_id_handler;
-
-#[derive(Debug)]
-struct HttpError(http::Error);
-
-impl warp::reject::Reject for HttpError {}
-
-#[derive(Debug)]
-struct RumaFromHttpRequestError(ruma::api::error::FromHttpRequestError);
-
-impl warp::reject::Reject for RumaFromHttpRequestError {}
+use std::future::Future;
+use std::pin::Pin;
+use serde_json::{
+    from_slice as from_json_slice, Value as JsonValue,
+};
+use ruma::api::OutgoingResponse;
+use http::Request;
 
 type Event = String;
 
@@ -77,131 +72,76 @@ impl ApplicationServiceState {
     }
 }
 
-// RumaHandler trait with associated types
-pub trait RumaHandler {
-    type Req: IncomingRequest + Send + 'static;
-    type Resp: Serialize + Send + 'static;
-    type Error: warp::reject::Reject + Send + 'static;
-    type Fut: Future<Output = Result<Self::Resp, Self::Error>> + Send + 'static;
+// // RumaHandler trait with associated types
+// pub trait FilterExtender {
+//
+//     fn add_to_filter(
+//         self,
+//         filter: warp::filters::BoxedFilter<(impl warp::Reply,)>,
+//         state: Arc<Mutex<ApplicationServiceState>>,
+//     ) -> warp::filters::BoxedFilter<(impl warp::Reply,)>;
+// }
 
-    fn add_to_filter(
-        self,
-        filter: warp::filters::BoxedFilter<(impl warp::Reply,)>,
-        state: Arc<Mutex<ApplicationServiceState>>,
-    ) -> warp::filters::BoxedFilter<(impl warp::Reply,)>;
-}
-
-// Helper trait to tie associated types to F
-pub trait HandlerTypes {
-    type Req: IncomingRequest + Send + 'static;
-    type Resp: Serialize + Send + 'static;
-    type Error: warp::reject::Reject + Send + 'static;
-    type Fut: Future<Output = Result<Self::Resp, Self::Error>> + Send + 'static;
-}
-
-// Implement HandlerTypes for F
-impl<F, Req, Resp, Error, Fut> HandlerTypes for F
-where
-    F: Fn(Arc<Mutex<ApplicationServiceState>>, Req) -> Fut,
-    Req: IncomingRequest + Send + 'static,
-    Resp: Serialize + Send + 'static,
-    Error: warp::reject::Reject + Send + 'static,
-    Fut: Future<Output = Result<Resp, Error>> + Send + 'static,
-{
-    type Req = Req;
-    type Resp = Resp;
-    type Error = Error;
-    type Fut = Fut;
-}
 
 // Helper function to convert HTTP method to Warp filter
-fn method_to_filter(method: Method) -> warp::filters::BoxedFilter<()> {
+fn method_to_filter(method: &Method) -> warp::filters::BoxedFilter<()> {
     match method {
-        Method::GET => warp::get().boxed(),
-        Method::POST => warp::post().boxed(),
-        Method::PUT => warp::put().boxed(),
-        Method::DELETE => warp::delete().boxed(),
+        &Method::GET => warp::get().boxed(),
+        &Method::POST => warp::post().boxed(),
+        &Method::PUT => warp::put().boxed(),
+        &Method::DELETE => warp::delete().boxed(),
         _ => panic!("Unsupported HTTP method: {:?}", method),
     }
 }
 
-// Helper function to parse the incoming request into the Req type
-fn ruma_request_filter<Req>() -> impl Filter<Extract = (Req,), Error = Rejection> + Clone
-where
-    Req: IncomingRequest + Send + 'static,
-{
-    warp::body::bytes().and_then(|body: Bytes| async move {
-        let http_request = http::Request::builder()
-            .body(body)
-            .map_err(|e| warp::reject::custom(HttpError(e)))?;
+// impl<Req, E, F, Fut> FilterExtender for F
+// where
+//     Req: IncomingRequest + Send + 'static,
+//     F: Fn(Arc<Mutex<ApplicationServiceState>>, Req) -> Fut + Clone  + Send + 'static,
+//     Fut: Future<Output = Result<Req::OutgoingResponse, E>> + Send,
+//     E: warp::reject::Reject + Send + 'static,
+// {
+//
+//     fn add_to_filter(self,
+//                      filter: warp::filters::BoxedFilter<(impl warp::Reply,)>,
+//                      state: Arc<Mutex<ApplicationServiceState>>) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
+//
+//         let meta = <Req as IncomingRequest>::METADATA;
+//         let mut combined_filter = filter;
+//
+//         for path in meta.history.all_paths() {
+//             let handler = self.clone();
+//             let state = state.clone();
+//             let method_filter = method_to_filter(&meta.method);
+//
+//             let endpoint =
+//                 warp::path(path).and(method_filter)
+//                                 .and(warp::any().map(move || state.clone()))
+//                                 .and_then(move |state, req| async move {
+//                                     handler(state, req).await
+//                                                        .map(|response| warp::reply::json(&response))
+//                                                        .map_err(warp::reject::custom)
+//                                 }).boxed();
+//
+//             combined_filter = combined_filter.or(endpoint)
+//                                              .unify()
+//                                              .boxed();
+//         }
+//
+//         combined_filter
+//     }
+// }
 
-        match Req::try_from_http_request(http_request, &[]) {
-            Ok(req) => Ok(req),
-            Err(err) => Err(warp::reject::custom(RumaFromHttpRequestError(err))),
-        }
-    })
-}
 
-// Updated macro
-macro_rules! impl_ruma_handler {
-    ( $($ty:ident),* $(,)? ) => {
-        impl<F, $($ty,)*> RumaHandler for F
-        where
-            F: HandlerTypes
-                + Fn($($ty,)* Arc<Mutex<ApplicationServiceState>>, F::Req) -> F::Fut
-                + Clone
-                + Send
-                + 'static,
-            $(
-                $ty: Filter<Extract = ($ty::Extract,), Error = warp::Rejection> + Send + Clone + 'static,
-            )*
-        {
-            type Req = F::Req;
-            type Resp = F::Resp;
-            type Error = F::Error;
-            type Fut = F::Fut;
 
-            fn add_to_filter(
-                self,
-                filter: warp::filters::BoxedFilter<(impl warp::Reply,)>,
-                state: Arc<Mutex<ApplicationServiceState>>,
-            ) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
-                let meta = <Self::Req as IncomingRequest>::METADATA;
-
-                let mut combined_filter = filter;
-
-                for path in meta.history.all_paths() {
-                    let handler = self.clone();
-                    let state = state.clone();
-                    let method_filter = method_to_filter(meta.method);
-
-                    let endpoint = warp::path(path)
-                        .and(method_filter)
-                        .and(warp::any().map(move || state.clone()))
-                        $(.and($ty.clone()))*
-                        .and(ruma_request_filter::<Self::Req>())
-                        .and_then(move |$($ty,)* state, req| async move {
-                            handler($($ty,)* state, req)
-                                .await
-                                .map(|response| warp::reply::json(&response))
-                                .map_err(warp::reject::custom)
-                        })
-                        .boxed();
-
-                    combined_filter = combined_filter
-                        .or(endpoint)
-                        .unify()
-                        .boxed();
-                }
-
-                combined_filter
-            }
-        }
-    }
-}
+// macro_rules! impl_ruma_handler {
+//     ( $($ty:ident),* $(,)? ) => {
+//
+//     }
+// }
 
 // Apply the macro
-impl_ruma_handler!();
+//impl_ruma_handler!();
 
 // Invoke the macro
 // impl_ruma_handler!(T1);
@@ -214,9 +154,69 @@ impl_ruma_handler!();
 // impl_ruma_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
 
 // Build the router with Warp filters
+use ruma::api::appservice::query::query_user_id::v1::{Request as QueryUserIdRequest, Response as QueryUserIdResponse};
+use warp::path::FullPath;
+
+type QueryUserIdHandler = fn(
+    Arc<Mutex<ApplicationServiceState>>,
+    QueryUserIdRequest,
+) -> Pin<Box<dyn Future<Output = Result<QueryUserIdResponse, Rejection>> + Send>>;
+
+pub fn create_user_id_filter(
+    state: Arc<Mutex<ApplicationServiceState>>,
+    handler: QueryUserIdHandler,
+) {
+    let meta = QueryUserIdRequest::METADATA;
+
+    for path in meta.history.all_paths() {
+        let state = state.clone();
+        let method_filter = method_to_filter(&meta.method);
+
+        let endpoint = warp::path(path)
+            .and(method_filter)
+            .and(warp::any().map(move || state.clone())) // Provide `state`
+            .and(warp::header::headers_cloned()) // Extract headers
+            .and(warp::body::bytes()) // Extract the raw body as `Bytes`
+            .and(warp::method()) // Extract the HTTP method
+            .and(warp::path::full()) // Extract the full path
+            .and_then(move |state, headers: HeaderMap, body, method, path: FullPath| async move {
+                // Build the `http::Request` manually
+                let uri = format!("{}", path.as_str());
+                let mut request = Request::builder()
+                    .method(method)
+                    .uri(uri);
+
+                for header in headers {
+                    let name = header.0.unwrap().as_str();
+                    let value = header.1.to_str().unwrap();
+                    request = request.header(name, value);
+                }
+
+                // Set the body
+                let request = request.body(body).map_err(warp::reject::custom)?;
+
+                // Convert the request using `try_from_http_request`
+                match QueryUserIdRequest::try_from_http_request(request) {
+                    Ok(req) => {
+                        // Pass the `state` and parsed `req` to the handler
+                        match handler(state, req).await {
+                            Ok(response) => {
+                                let response = response.try_into_http_response::<Vec<u8>>().unwrap();
+                                let json_body: JsonValue = from_json_slice(response.body()).unwrap();
+                                Ok::<_, Rejection>(warp::reply::json(&json_body))
+                            }
+                            Err(err) => Err(err),
+                        }
+                    }
+                    Err(err) => Err(warp::reject::custom(err)), // Handle conversion error
+                }
+            });
+    }
+}
+
 pub fn build_router(
     state: Arc<Mutex<ApplicationServiceState>>,
-) -> impl warp::Filter + Clone {
+) -> impl Filter + Clone {
     // Starting with a base filter (e.g., a health check)
 
     // Starting with a base filter (e.g., a health check)
@@ -224,13 +224,11 @@ pub fn build_router(
         .and(warp::any().map(move || state.clone()))
         .map(|state: Arc<Mutex<ApplicationServiceState>>| {
             // Example health check with access to state
-            let _ = state.lock().unwrap(); // Just to demonstrate state usage
+            // let _ = state.lock().unwrap(); // Just to demonstrate state usage
             warp::reply::json(&"OK")
         });
 
-    // Add filters using the macro-defined Ruma handlers
     base_filter
-        .add_to_filter(query_user_id_handler, state.clone())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
