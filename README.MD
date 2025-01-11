@@ -96,6 +96,7 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 
 # Scheduled TODOs
 - make this work as an registered AS (Application Service) on your matrix homeserver instead of using a a matrix-user-account
+- send info when created invoice has been paid
 - limit usage to specific matrix instances
 - Inform users about donated funds.
 - Graceliously handle multiple bots is a single
