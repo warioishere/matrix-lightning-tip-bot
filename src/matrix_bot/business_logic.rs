@@ -10,6 +10,18 @@ use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
 
+const HELP_COMMANDS: &str = "!tip     - Reply to a message to tip it: !tip <amount> [<memo>]\n\
+!balance - Check your balance: !balance\n\
+!send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com>, or a lightning address <lightning@address.com> [<memo>]\n\
+!invoice - Receive over Lightning: !invoice <amount> [<memo>]\n\
+!pay     - Pay  over Lightning: !pay <invoice>\n\
+!help    - Read this help.\n\
+!donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>\n\
+!party   - Start a Party: !party\n\
+!fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
+!sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
+!version - Print the version of this bot";
+
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     lnbits_client: LNBitsClient,
@@ -30,21 +42,12 @@ impl BusinessLogicContext {
     }
 
     pub fn get_help_content(&self) -> String {
-         format!("Matrix-Lightning-Tip-Bot {:?}  \n \
-                 !tip      - Reply to a message to tip it: !tip <amount> [<memo>]\n\
-                 !balance - Check your balance: !balance\n\
-                 !send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com>, or a lightning address <lightning@address.com> [<memo>]\n\
-                 !invoice - Receive over Lightning: !invoice <amount> [<memo>]\n\
-                 !pay     - Pay  over Lightning: !pay <invoice>\n\
-                 !help    - Read this help.\n\
-                 !donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>\n\
-                 !party   - Start a Party: !party\n\
-                 !fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
-                 !sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
-                 !version - Print the version of this bot\n\
-                 If you wanna help consider donating, or sending some btc to :{:?}",
-                 env!("CARGO_PKG_VERSION"),
-                self.config.btc_donation_address)
+        format!(
+            "Matrix-Lightning-Tip-Bot {}\n{}\nIf you wanna help consider donating, or sending some btc to: {}",
+            env!("CARGO_PKG_VERSION"),
+            HELP_COMMANDS,
+            self.config.btc_donation_address
+        )
     }
 
     pub async fn processing_command(&self,

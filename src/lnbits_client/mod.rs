@@ -119,30 +119,46 @@ pub mod lnbits_client {
         }
     }
 
-    #[derive(Clone)]
-    pub struct LNBitsClient {
-        pub url: String,
-        pub header: [(String, String); 3],
-    }
+    use reqwest::{Client, header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE}};
+
+#[derive(Clone)]
+pub struct LNBitsClient {
+    pub url: String,
+    pub headers: HeaderMap,
+    client: Client,
+}
 
     impl LNBitsClient {
 
+        fn headers_with_key(&self, key: &str) -> HeaderMap {
+            let mut headers = self.headers.clone();
+            headers.insert("X-Api-Key", HeaderValue::from_str(key).unwrap());
+            headers
+        }
+
         pub fn new(config: &Config) -> LNBitsClient {
-            return LNBitsClient {
-                url: String::from(config.lnbits_url.clone()),
-                header: [(String::from("Content-Type"), String::from("application/json")),
-                    (String::from("Accept"), String::from("application/json")),
-                    (String::from("X-Api-Key"), String::from(config.lnbits_x_api_key.clone()))]
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+            headers.insert(
+                "X-Api-Key",
+                HeaderValue::from_str(config.lnbits_x_api_key.as_str()).unwrap(),
+            );
+
+            LNBitsClient {
+                url: config.lnbits_url.clone(),
+                headers,
+                client: Client::new(),
             }
         }
 
         pub async fn create_user_with_initial_wallet(&self,
                                                      create_user_args: &CreateUserArgs) -> Result<LNBitsUser, reqwest::Error> {
 
-            let response = reqwest::Client::new().post([self.url.as_str(), "/usermanager/api/v1/users"].join(""))
-                .header((self.header[0]).0.as_str(), (self.header[0]).1.as_str())
-                .header((self.header[1]).0.as_str(), (self.header[1]).1.as_str())
-                .header((self.header[2]).0.as_str(), (self.header[2]).1.as_str())
+            let response = self
+                .client
+                .post([self.url.as_str(), "/usermanager/api/v1/users"].join(""))
+                .headers(self.headers.clone())
                 .json(create_user_args)
                 .send()
                 .await?
@@ -152,15 +168,12 @@ pub mod lnbits_client {
         }
 
         pub async fn wallet_info(&self, wallet: &Wallet) -> Result<WalletInfo, reqwest::Error> {
-            let header: [(String, String); 3] =
-                [(String::from("Content-Type"), String::from("application/json")),
-                    (String::from("Accept"), String::from("application/json")),
-                    (String::from("X-Api-Key"), String::from(&wallet.in_key))];
+            let headers = self.headers_with_key(&wallet.in_key);
 
-            let response = reqwest::Client::new().get([self.url.as_str(), "/api/v1/wallet"].join(""))
-                .header((header[0]).0.as_str(), (header[0]).1.as_str())
-                .header((header[1]).0.as_str(), (header[1]).1.as_str())
-                .header((header[2]).0.as_str(), (header[2]).1.as_str())
+            let response = self
+                .client
+                .get([self.url.as_str(), "/api/v1/wallet"].join(""))
+                .headers(headers)
                 .send()
                 .await?
                 /*.json::<WalletInfo>()
@@ -178,10 +191,10 @@ pub mod lnbits_client {
         }
 
         pub async fn wallets(&self, user: &LNBitsUser) -> Result<Vec<Wallet>, reqwest::Error> {
-            let response = reqwest::Client::new().get([self.url.as_str(), "/usermanager/api/v1/wallets/", &*(user.id)].join(""))
-                .header((self.header[0]).0.as_str(), (self.header[0]).1.as_str())
-                .header((self.header[1]).0.as_str(), (self.header[1]).1.as_str())
-                .header((self.header[2]).0.as_str(), (self.header[2]).1.as_str())
+            let response = self
+                .client
+                .get([self.url.as_str(), "/usermanager/api/v1/wallets/", &*(user.id)].join(""))
+                .headers(self.headers.clone())
                 .send()
                 .await?
                 /*.json::<Vec<Wallet>>()
@@ -201,10 +214,12 @@ pub mod lnbits_client {
         pub async fn invoice(&self,
                              wallet: &Wallet,
                              invoice_params: &InvoiceParams) -> Result<BitInvoice, reqwest::Error> {
-            let response = reqwest::Client::new().post([self.url.as_str(), "/api/v1/payments"].join(""))
-                .header((self.header[0]).0.as_str(), (self.header[0]).1.as_str())
-                .header((self.header[1]).0.as_str(), (self.header[1]).1.as_str())
-                .header((self.header[2]).0.as_str(), wallet.in_key.clone())
+            let headers = self.headers_with_key(&wallet.in_key);
+
+            let response = self
+                .client
+                .post([self.url.as_str(), "/api/v1/payments"].join(""))
+                .headers(headers)
                 .json(&invoice_params)
                 .send()
                 .await?
@@ -218,10 +233,12 @@ pub mod lnbits_client {
         pub async fn pay(&self,
                          wallet: &Wallet,
                          payment_params: &PaymentParams) -> Result<(), reqwest::Error> {
-            reqwest::Client::new().post([self.url.as_str(), "/api/v1/payments"].join(""))
-                .header((self.header[0]).0.as_str(), (self.header[0]).1.as_str())
-                .header((self.header[1]).0.as_str(), (self.header[1]).1.as_str())
-                .header((self.header[2]).0.as_str(), wallet.admin_key.clone())
+            let headers = self.headers_with_key(&wallet.admin_key);
+
+            self
+                .client
+                .post([self.url.as_str(), "/api/v1/payments"].join(""))
+                .headers(headers)
                 .timeout(Duration::from_secs(3600))
                 .json(&payment_params)
                 .send()
