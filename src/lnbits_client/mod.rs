@@ -119,7 +119,7 @@ pub mod lnbits_client {
         }
     }
 
-    use reqwest::{Client, header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE}};
+    use reqwest::{Client, header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, AUTHORIZATION}};
 
 #[derive(Clone)]
 pub struct LNBitsClient {
@@ -141,8 +141,10 @@ pub struct LNBitsClient {
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
             headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
             headers.insert(
-                "X-Api-Key",
-                HeaderValue::from_str(config.lnbits_x_api_key.as_str()).unwrap(),
+                AUTHORIZATION,
+                HeaderValue::from_str(
+                    &format!("Bearer {}", config.lnbits_bearer_token)
+                ).unwrap(),
             );
 
             LNBitsClient {

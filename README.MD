@@ -69,7 +69,7 @@ Construct a file `config.conf` with the following entries:
 --matrix-username=your_user_for_the_bot                # The username of the account your created
 --matrix-password=the_passwort_for_that_user_account   # The password of your matrix bot
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
---lnbits-x-api-key=<LNBITS-X-API-KEY>                  # The user x-api-key for your LNbits instance. See https://github.com/lnbits/lnbits/wiki/LNbits-Extensions on how to obtain it.
+--lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --database-url=/db/db.db                               # The absolute path to your generated db.
 ```
 
