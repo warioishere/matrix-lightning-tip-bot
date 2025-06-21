@@ -540,6 +540,13 @@ pub mod matrix_bot {
                             _ => { },
                         };
 
+                        if let Some(receiver_text) = command_reply.receiver_message {
+                            let content = RoomMessageEventContent::text_plain(receiver_text);
+                            if let Err(error) = room.send(content).await {
+                                log::warn!("Error occurred while notifying receiver {:?}..", error);
+                            }
+                        }
+
                         //
                         // TODO(AE) This assumes we don't have image only responses fix once
                         // this changes.
