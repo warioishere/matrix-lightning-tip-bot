@@ -247,6 +247,23 @@ pub struct LNBitsClient {
                 .await?;
             Ok(())
         }
+
+        pub async fn invoice_status(&self, api_key: &str, payment_hash: &str) -> Result<bool, reqwest::Error> {
+            let headers = self.headers_with_key(api_key);
+
+            let url = [self.url.as_str(), "/api/v1/payments/", payment_hash].join("");
+
+            let response = self
+                .client
+                .get(url)
+                .headers(headers)
+                .send()
+                .await?
+                .json::<serde_json::Value>()
+                .await?;
+
+            Ok(response.get("paid").and_then(|v| v.as_bool()).unwrap_or(false))
+        }
     }
 
 

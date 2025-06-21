@@ -563,6 +563,34 @@ pub mod matrix_bot {
                             }
                         }
 
+                        if command_reply.payment_hash.is_some() && command_reply.in_key.is_some() {
+                            let payment_hash = command_reply.payment_hash.clone().unwrap();
+                            let in_key = command_reply.in_key.clone().unwrap();
+                            let room_clone = room.clone();
+                            let ln_client = business_logic_contex.lnbits_client.clone();
+                            tokio::spawn(async move {
+                                use tokio::time::{sleep, Duration};
+                                loop {
+                                    let status = ln_client.invoice_status(&in_key, &payment_hash).await;
+                                    match status {
+                                        Ok(true) => {
+                                            let content = RoomMessageEventContent::text_plain("Invoice has been paid.");
+                                            if let Err(e) = room_clone.send(content).await {
+                                                log::warn!("Could not send invoice paid notification: {:?}", e);
+                                            }
+                                            break;
+                                        }
+                                        Ok(false) => {}
+                                        Err(e) => {
+                                            log::warn!("Error checking invoice status: {:?}", e);
+                                            break;
+                                        }
+                                    }
+                                    sleep(Duration::from_secs(10)).await;
+                                }
+                            });
+                        }
+
                     }
                 }
             });

@@ -206,9 +206,11 @@ impl BusinessLogicContext {
                 }
             },
             None => {
-                let bolt11_invoice: String = try_with!(self.generate_bolt11_invoice_for_matrix_id(recipient, amount, memo).await,
+                let (bit_invoice, _) = try_with!(self.generate_bolt11_invoice_for_matrix_id(recipient, amount, memo).await,
                                          "Could not generate invoice");
- 
+
+                let bolt11_invoice = bit_invoice.payment_request;
+
                 try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, bolt11_invoice.as_str()).await,
                    "Could not pay invoice");
             }
@@ -235,8 +237,12 @@ impl BusinessLogicContext {
                                 memo: &Option<String>) -> Result<CommandReply, SimpleError> {
         log::info!("processing invoice command ..");
 
-        let bolt11_invoice: String = try_with!(self.generate_bolt11_invoice_for_matrix_id(sender, amount, memo).await,
+        let (bit_invoice, in_key) = try_with!(self.generate_bolt11_invoice_for_matrix_id(sender, amount, memo).await,
                                         "Could not generate invoice");
+
+        let bolt11_invoice = bit_invoice.payment_request.clone();
+
+        let payment_hash = bit_invoice.payment_hash.clone();
 
         log::info!("Generated {:?} as invoice", bolt11_invoice);
 
@@ -246,8 +252,10 @@ impl BusinessLogicContext {
                                        "Could not generate QR code");
 
         // Insert QR code here
-        let command_reply = CommandReply::new(bolt11_invoice.as_str(),
+        let mut command_reply = CommandReply::new(bolt11_invoice.as_str(),
                                                                 image);
+        command_reply.payment_hash = payment_hash;
+        command_reply.in_key = Some(in_key);
 
         Ok(command_reply)
     }
@@ -391,7 +399,7 @@ impl BusinessLogicContext {
     async fn generate_bolt11_invoice_for_matrix_id(&self,
                                                    matrix_id: &str,
                                                    amount: u64,
-                                                   memo: &Option<String>) -> Result<String, SimpleError> {
+                                                   memo: &Option<String>) -> Result<(BitInvoice, String), SimpleError> {
 
         let lnbits_id = try_with!(self.matrix_id2lnbits_id(matrix_id).await,
                                   "Could not load client");
@@ -402,6 +410,6 @@ impl BusinessLogicContext {
         let invoice = try_with!(self.lnbits_client.invoice(&wallet, &invoice_params).await,
                                    "Could not load invoice");
 
-        Ok(invoice.payment_request)
+        Ok((invoice, wallet.in_key.clone()))
     }
 }
