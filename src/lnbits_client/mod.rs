@@ -176,18 +176,13 @@ pub struct LNBitsClient {
                 .headers(headers)
                 .send()
                 .await?
-                /*.json::<WalletInfo>()
-                .await?*/;
+                .error_for_status()?;
 
             log::info!("Received: {:?}", response);
 
-            let response_text = response.text().await?;
+            let wallet_info = response.json::<WalletInfo>().await?;
 
-            log::info!("Received Txt: {:?}", response_text);
-
-            let response: WalletInfo = serde_json::from_str(response_text.as_str()).unwrap();
-
-            Ok(response)
+            Ok(wallet_info)
         }
 
         pub async fn wallets(&self, user: &LNBitsUser) -> Result<Vec<Wallet>, reqwest::Error> {
@@ -197,18 +192,13 @@ pub struct LNBitsClient {
                 .headers(self.headers.clone())
                 .send()
                 .await?
-                /*.json::<Vec<Wallet>>()
-                .await?*/;
+                .error_for_status()?;
 
             log::info!("Received: {:?}", response);
 
-            let response_text = response.text().await?;
+            let wallets = response.json::<Vec<Wallet>>().await?;
 
-            log::info!("Received Txt: {:?}", response_text);
-
-            let response: Vec<Wallet> = serde_json::from_str(response_text.as_str()).unwrap();
-
-            Ok(response)
+            Ok(wallets)
         }
 
         pub async fn invoice(&self,
