@@ -11,8 +11,6 @@ pub mod config {
         pub lnbits_bearer_token: String,
         pub database_url: String,
         pub debug_level: String,
-        pub donate_user: Option<String>,
-        pub btc_donation_address: String,
         pub allowed_matrix_servers: Option<Vec<String>>
     }
 
