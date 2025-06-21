@@ -157,7 +157,7 @@ pub struct LNBitsClient {
 
             let response = self
                 .client
-                .post([self.url.as_str(), "/usermanager/api/v1/users"].join(""))
+                .post([self.url.as_str(), "/users/api/v1/user"].join(""))
                 .headers(self.headers.clone())
                 .json(create_user_args)
                 .send()
@@ -193,7 +193,7 @@ pub struct LNBitsClient {
         pub async fn wallets(&self, user: &LNBitsUser) -> Result<Vec<Wallet>, reqwest::Error> {
             let response = self
                 .client
-                .get([self.url.as_str(), "/usermanager/api/v1/wallets/", &*(user.id)].join(""))
+                .get([self.url.as_str(), "/users/api/v1/wallets/", &*(user.id)].join(""))
                 .headers(self.headers.clone())
                 .send()
                 .await?
