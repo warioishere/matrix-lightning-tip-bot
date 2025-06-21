@@ -1,6 +1,6 @@
 pub mod config {
 
-    use clap::{Arg, Command};
+    use clap::{Arg, Command, ArgAction};
 
     #[derive(Clone, Debug)]
     pub struct Config {
@@ -12,19 +12,21 @@ pub mod config {
         pub database_url: String,
         pub debug_level: String,
         pub donate_user: Option<String>,
-        pub btc_donation_address: String
+        pub btc_donation_address: String,
+        pub allowed_matrix_servers: Option<Vec<String>>
     }
 
     impl Config {
         pub fn new(matrix_server: &str,
                    matrix_username: &str,
-               matrix_password: &str,
-               lnbits_url: &str,
-               lnbits_bearer_token: &str,
-               database_url: &str,
-               debug_level: &str,
-               donate_user: Option<&String>,
-               btc_donation_address: &str) -> Config {
+                   matrix_password: &str,
+                   lnbits_url: &str,
+                   lnbits_bearer_token: &str,
+                   database_url: &str,
+                   debug_level: &str,
+                   donate_user: Option<&String>,
+                   btc_donation_address: &str,
+                   allowed_matrix_servers: Option<Vec<String>>) -> Config {
             Config {
                 matrix_server: matrix_server.to_string(),
                 matrix_username: matrix_username.to_string(),
@@ -34,7 +36,8 @@ pub mod config {
                 database_url: database_url.to_string(),
                 debug_level: debug_level.to_string(),
                 donate_user: donate_user.map(|s| s.to_string()),
-                btc_donation_address: btc_donation_address.to_string()
+                btc_donation_address: btc_donation_address.to_string(),
+                allowed_matrix_servers
             }
         }
     }
@@ -48,7 +51,7 @@ pub mod config {
         ).unwrap();
 
         let matches = Command::new("LN-Matrix-Bot")
-            .version("0.5.0")
+            .version("0.5.5")
             .author("AE")
             .about("LN-Matrix-Bot")
             .arg(Arg::new("matrix-server")
@@ -89,6 +92,12 @@ pub mod config {
                 .default_value("bc1q72dzh04fwxx780w05twtmn5fxzegpawdn5zg3g")
                 .required(false)
                 .help("The BTC address to display for donations"))
+            .arg(Arg::new("allowed-matrix-server")
+                .long("allowed-matrix-server")
+                .num_args(1)
+                .action(ArgAction::Append)
+                .required(false)
+                .help("Matrix servers allowed to use the bot. Can be repeated"))
 
             .get_matches_from(args);
 
@@ -110,6 +119,10 @@ pub mod config {
 
         let btc_donation_address = matches.get_one::<String>("btc-donation-address").unwrap();
 
+        let allowed_matrix_servers = matches
+            .get_many::<String>("allowed-matrix-server")
+            .map(|vals| vals.map(|v| v.to_string()).collect::<Vec<String>>());
+
         Config::new(matrix_server,
                     matrix_username,
                     matrix_password,
@@ -118,6 +131,7 @@ pub mod config {
                     database_url,
                     debug_level,
                     donate_user,
-                    btc_donation_address)
+                    btc_donation_address,
+                    allowed_matrix_servers)
     }
 }

@@ -108,6 +108,15 @@ pub mod matrix_bot {
         msg_body.split('\n').last().unwrap().to_string()
     }
 
+    fn sender_allowed(sender: &OwnedUserId, config: &Config) -> bool {
+        if let Some(allowed) = &config.allowed_matrix_servers {
+            let server = sender.server_name().as_str();
+            allowed.iter().any(|s| s == server)
+        } else {
+            true
+        }
+    }
+
     async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
@@ -453,6 +462,10 @@ pub mod matrix_bot {
                         log::info!("processing event {:?} ..", event);
 
                         let sender = event.sender.as_str();
+                        if !sender_allowed(&event.sender, &business_logic_contex.config) {
+                            log::info!("Ignoring message from disallowed server: {}", event.sender.server_name());
+                            return;
+                        }
                         let original_event = reply_event_id(event.content.relates_to.as_ref());
 
                         let extracted_msg_body = extract_body(&event);
