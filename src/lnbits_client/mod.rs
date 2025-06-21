@@ -94,8 +94,6 @@ pub mod lnbits_client {
         pub min: u64,
         pub max: u64,
         pub currency: String,
-        pub comment_chars: u64,
-        pub fiat_base_multiplier: u64,
         pub username: String,
         pub zaps: bool,
     }
@@ -103,13 +101,11 @@ pub mod lnbits_client {
     impl LnAddressRequest {
         pub fn new(username: &str, wallet_id: &str) -> LnAddressRequest {
             LnAddressRequest {
-                description: format!("Lightning address for {}", username),
+                description: "Matrix LN Address".to_string(),
                 wallet: wallet_id.to_string(),
-                min: 0,
-                max: 0,
-                currency: "satoshis".to_string(),
-                comment_chars: 0,
-                fiat_base_multiplier: 100,
+                min: 1,
+                max: 500_000,
+                currency: "sats".to_string(),
                 username: username.to_string(),
                 zaps: false,
             }
