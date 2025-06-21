@@ -41,6 +41,10 @@ impl BusinessLogicContext {
         }
     }
 
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     pub fn get_help_content(&self) -> String {
         format!(
             "Matrix-Lightning-Tip-Bot {}\n{}",
