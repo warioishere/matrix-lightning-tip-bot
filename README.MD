@@ -71,7 +71,7 @@ Construct a file `config.conf` with the following entries:
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --database-url=/db/db.db                               # The absolute path to your generated db.
---allowed-matrix-server=https://matrix.my-matrixserver.org  # Allowed matrix server (optional, repeat multiple times)
+--allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
 ### Running
