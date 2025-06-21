@@ -82,9 +82,37 @@ pub mod lnbits_client {
     }
 
     #[derive(Debug, Deserialize, Serialize)]
-    pub struct WalletInfo {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub balance: Option<u64>,
+        pub struct WalletInfo {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub balance: Option<u64>,
+        }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct LnAddressRequest {
+        pub description: String,
+        pub amount: u64,
+        pub max: u64,
+        pub min: u64,
+        pub comment_chars: u64,
+        pub username: String,
+    }
+
+    impl LnAddressRequest {
+        pub fn new(username: &str) -> LnAddressRequest {
+            LnAddressRequest {
+                description: format!("Lightning address for {}", username),
+                amount: 0,
+                max: 0,
+                min: 0,
+                comment_chars: 0,
+                username: username.to_string(),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct LnAddressResponse {
+        pub lnurl: String,
     }
 
 
@@ -266,6 +294,24 @@ pub struct LNBitsClient {
                 .await?;
 
             Ok(response.get("paid").and_then(|v| v.as_bool()).unwrap_or(false))
+        }
+
+        pub async fn create_lnurl_address(&self,
+                                          wallet: &Wallet,
+                                          request: &LnAddressRequest) -> Result<LnAddressResponse, reqwest::Error> {
+            let headers = self.headers_with_key(&wallet.admin_key);
+
+            let response = self
+                .client
+                .post([self.url.as_str(), "/lnurlp/api/v1/links"].join(""))
+                .headers(headers)
+                .json(request)
+                .send()
+                .await?
+                .json::<LnAddressResponse>()
+                .await?;
+
+            Ok(response)
         }
     }
 

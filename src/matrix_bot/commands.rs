@@ -11,6 +11,7 @@ pub enum Command  {
     Donate  { sender: String, amount: u64 },
     Party   { },
     Version { },
+    GenerateLnAddress { sender: String, username: String },
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
     None,
@@ -114,6 +115,15 @@ pub fn party() -> Result<Command, SimpleError> {
 
 pub fn version() -> Result<Command, SimpleError> {
     Ok(Command::Version { })
+}
+
+pub fn generate_ln_address(sender: &str, text: &str) -> Result<Command, SimpleError> {
+    let split = text.split_whitespace().collect::<Vec<&str>>();
+    if split.len() < 2 {
+        bail!("Expected a at least 2 arguments")
+    }
+    let username = split[1].to_string();
+    Ok(Command::GenerateLnAddress { sender: sender.to_string(), username })
 }
 
 pub fn fiat_to_sats(sender: &str, text: &str) -> Result<Command, SimpleError> {
