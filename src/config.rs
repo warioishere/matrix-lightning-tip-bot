@@ -8,7 +8,7 @@ pub mod config {
         pub matrix_username: String,
         pub matrix_password: String,
         pub lnbits_url: String,
-        pub lnbits_x_api_key: String,
+        pub lnbits_bearer_token: String,
         pub database_url: String,
         pub debug_level: String,
         pub donate_user: Option<String>,
@@ -20,7 +20,7 @@ pub mod config {
                    matrix_username: &str,
                matrix_password: &str,
                lnbits_url: &str,
-               lnbits_x_api_key: &str,
+               lnbits_bearer_token: &str,
                database_url: &str,
                debug_level: &str,
                donate_user: Option<&String>,
@@ -30,7 +30,7 @@ pub mod config {
                 matrix_username: matrix_username.to_string(),
                 matrix_password: matrix_password.to_string(),
                 lnbits_url: lnbits_url.to_string(),
-                lnbits_x_api_key: lnbits_x_api_key.to_string(),
+                lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 database_url: database_url.to_string(),
                 debug_level: debug_level.to_string(),
                 donate_user: donate_user.map(|s| s.to_string()),
@@ -67,10 +67,10 @@ pub mod config {
                 .long("lnbits-url")
                 .required(true)
                 .help("lnbits url"))
-            .arg(Arg::new("lnbits-x-api-key")
-                .long("lnbits-x-api-key")
+            .arg(Arg::new("lnbits-bearer-token")
+                .long("lnbits-bearer-token")
                 .required(true)
-                .help("lnbits x api key"))
+                .help("lnbits bearer token"))
             .arg(Arg::new("database-url")
                 .long("database-url")
                 .required(true)
@@ -100,7 +100,7 @@ pub mod config {
 
         let lnbits_url = matches.get_one::<String>("lnbits-url").unwrap();
 
-        let lnbits_x_api_key = matches.get_one::<String>("lnbits-x-api-key").unwrap();
+        let lnbits_bearer_token = matches.get_one::<String>("lnbits-bearer-token").unwrap();
 
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
@@ -114,7 +114,7 @@ pub mod config {
                     matrix_username,
                     matrix_password,
                     lnbits_url,
-                    lnbits_x_api_key,
+                    lnbits_bearer_token,
                     database_url,
                     debug_level,
                     donate_user,
