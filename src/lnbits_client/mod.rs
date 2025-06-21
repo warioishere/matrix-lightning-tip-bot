@@ -17,7 +17,9 @@ pub mod lnbits_client {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub webhook: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub description_hash: Option<String>
+        pub description_hash: Option<String>,
+        pub unit: String,
+        pub internal: bool,
     }
 
     impl InvoiceParams {
@@ -28,6 +30,8 @@ pub mod lnbits_client {
                 memo: if memo.is_none() { Some(Uuid::new_v4().to_string()) } else { memo.clone() },
                 webhook: None,
                 description_hash: None, // TODO(AE): I've no idea why this should work?
+                unit: "sat".to_string(),
+                internal: false,
             }
         }
     }
@@ -58,6 +62,7 @@ pub mod lnbits_client {
     pub struct BitInvoice {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub payment_hash: Option<String>,
+        #[serde(rename = "payment_request", alias = "bolt11")]
         pub payment_request: String,
     }
 
