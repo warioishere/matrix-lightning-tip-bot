@@ -5,7 +5,7 @@ use uuid::Uuid;
 use qrcode_generator::QrCodeEcc;
 use crate::{Config, DataLayer, LNBitsClient};
 use crate::data_layer::data_layer::NewMatrixId2LNBitsId;
-use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo};
+use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
@@ -16,8 +16,9 @@ const HELP_COMMANDS: &str = "!tip     - Reply to a message to tip it: !tip <amou
 !invoice - Receive over Lightning: !invoice <amount> [<memo>]\n\
 !pay     - Pay  over Lightning: !pay <invoice>\n\
 !help    - Read this help.\n\
-!donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>\n\
+!donate  - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
 !party   - Start a Party: !party\n\
+!generate-ln-address - Generate a Lightning address: !generate-ln-address <username>\n\
 !fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
 !sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
 !version - Print the version of this bot";
@@ -97,6 +98,10 @@ impl BusinessLogicContext {
             },
             Command::Version { } => {
                 try_with!(self.do_process_version().await, "Could not process party")
+            },
+            Command::GenerateLnAddress { sender, username } => {
+                try_with!(self.do_process_generate_ln_address(sender.as_str(), username.as_str()).await,
+                          "Could not process generate-ln-address")
             },
             Command::FiatToSats { sender, amount, currency } => {
                 try_with!(self.do_process_fiat_conversion(sender.as_str(), amount, currency.as_str(), true).await,
@@ -310,6 +315,22 @@ impl BusinessLogicContext {
 
     async fn do_process_version(&self) -> Result<CommandReply, SimpleError> {
         Ok(CommandReply::text_only(format!("My version is {:?}", env!("CARGO_PKG_VERSION")).as_str()))
+    }
+
+    async fn do_process_generate_ln_address(&self, sender: &str, username: &str) -> Result<CommandReply, SimpleError> {
+        log::info!("processing generate ln address command ..");
+
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
+                                  "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
+                                      "Could not load wallet");
+
+        let params = LnAddressRequest::new(username);
+
+        let response = try_with!(self.lnbits_client.create_lnurl_address(&wallet, &params).await,
+                                 "Could not create ln address");
+
+        Ok(CommandReply::text_only(format!("{}", response.lnurl).as_str()))
     }
 
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {
