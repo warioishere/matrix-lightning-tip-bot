@@ -557,7 +557,7 @@ pub mod matrix_bot {
                             // https://stackoverflow.com/questions/42240663/how-to-read-stdioread-from-a-vec-or-slice
 
 
-                            let upload_result = room.send_attachment("image",
+                            let upload_result = room.send_attachment("invoice.png",
                                                                      &mime::IMAGE_PNG,
                                                                      command_reply.image.unwrap(),
                                                                      AttachmentConfig::new()).await;
