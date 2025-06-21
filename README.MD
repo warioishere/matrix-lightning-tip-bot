@@ -7,7 +7,7 @@ Matrix-Lightning-Tip-Bot (MLTB) is a lightning network BTC tip bot for the matri
 While I have tested this bot, it is in 'beta', don't put in more than you are willing to lose.
 
 # How to use
-MLTB can either be used directly or be self run. Running your own instance requires access to a LNbits (https://lnbits.com/) instance with the https://github.com/lnbits/usermanager plugin installed.
+MLTB can either be used directly or be self run. Running your own instance requires access to a LNbits (https://lnbits.com/) instance that exposes the users API at `/users/api/v1/user`.
 
 ## Directly
 I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.yourdevice.ch. Invite it to a room to get started immediately. After joining the bot should display the possible commands which are:
@@ -46,7 +46,7 @@ Install java and libsqlite3 on your debian/ubuntu server with
 `sudo apt install libsqlite3-dev`
 
 ### Create a new user for your lnbits instance
-Create a new user on your instance which manages the wallets. Install the user manager application plugin for that user. The user can be a normal user, doesnt need to be a admin or a superuser account
+Create a new user on your instance which manages the wallets. Ensure the users API is enabled for that user (providing access to `/users/api/v1/user`). The user can be a normal user and does not need to be an admin or superuser account
 
 ### Build Docker image
 Building the Docker image is done with:
