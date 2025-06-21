@@ -43,10 +43,9 @@ impl BusinessLogicContext {
 
     pub fn get_help_content(&self) -> String {
         format!(
-            "Matrix-Lightning-Tip-Bot {}\n{}\nIf you wanna help consider donating, or sending some btc to: {}",
+            "Matrix-Lightning-Tip-Bot {}\n{}",
             env!("CARGO_PKG_VERSION"),
-            HELP_COMMANDS,
-            self.config.btc_donation_address
+            HELP_COMMANDS
         )
     }
 
@@ -310,13 +309,11 @@ impl BusinessLogicContext {
     }
 
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {
-        if self.config.donate_user.is_none() {
-            return Ok(CommandReply::text_only("Thanks but this agent does not accept donations"))
-        }
+        const DONATION_ADDRESS: &str = "node-runner@btcpay.yourdevice.ch";
 
         let result =
             self.do_process_send(sender,
-                                 self.config.donate_user.as_ref().unwrap().as_str(),
+                                 DONATION_ADDRESS,
                                  amount,
                                  &Some(format!("a generouse donation from {:?}", sender))).await;
         match result {
