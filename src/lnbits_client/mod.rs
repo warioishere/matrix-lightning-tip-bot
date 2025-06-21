@@ -90,22 +90,28 @@ pub mod lnbits_client {
     #[derive(Debug, Deserialize, Serialize)]
     pub struct LnAddressRequest {
         pub description: String,
-        pub amount: u64,
-        pub max: u64,
+        pub wallet: String,
         pub min: u64,
+        pub max: u64,
+        pub currency: String,
         pub comment_chars: u64,
+        pub fiat_base_multiplier: u64,
         pub username: String,
+        pub zaps: bool,
     }
 
     impl LnAddressRequest {
-        pub fn new(username: &str) -> LnAddressRequest {
+        pub fn new(username: &str, wallet_id: &str) -> LnAddressRequest {
             LnAddressRequest {
                 description: format!("Lightning address for {}", username),
-                amount: 0,
-                max: 0,
+                wallet: wallet_id.to_string(),
                 min: 0,
+                max: 0,
+                currency: "satoshis".to_string(),
                 comment_chars: 0,
+                fiat_base_multiplier: 100,
                 username: username.to_string(),
+                zaps: false,
             }
         }
     }

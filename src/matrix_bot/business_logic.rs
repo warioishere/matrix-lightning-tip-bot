@@ -325,7 +325,7 @@ impl BusinessLogicContext {
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
                                       "Could not load wallet");
 
-        let params = LnAddressRequest::new(username);
+        let params = LnAddressRequest::new(username, &wallet.id);
 
         let response = try_with!(self.lnbits_client.create_lnurl_address(&wallet, &params).await,
                                  "Could not create ln address");
