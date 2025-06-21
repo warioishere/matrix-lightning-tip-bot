@@ -5,7 +5,7 @@ use uuid::Uuid;
 use qrcode_generator::QrCodeEcc;
 use crate::{Config, DataLayer, LNBitsClient};
 use crate::data_layer::data_layer::NewMatrixId2LNBitsId;
-use crate::lnbits_client::lnbits_client::{CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo};
+use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo};
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
@@ -24,7 +24,7 @@ const HELP_COMMANDS: &str = "!tip     - Reply to a message to tip it: !tip <amou
 
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
-    lnbits_client: LNBitsClient,
+    pub lnbits_client: LNBitsClient,
     data_layer: DataLayer,
     config: Config
 }
