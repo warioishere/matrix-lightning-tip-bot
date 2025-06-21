@@ -188,7 +188,13 @@ pub struct LNBitsClient {
         pub async fn wallets(&self, user: &LNBitsUser) -> Result<Vec<Wallet>, reqwest::Error> {
             let response = self
                 .client
-                .get([self.url.as_str(), "/users/api/v1/wallets/", &*(user.id)].join(""))
+                .get([
+                    self.url.as_str(),
+                    "/users/api/v1/user/",
+                    &*(user.id),
+                    "/wallet/",
+                ]
+                .join(""))
                 .headers(self.headers.clone())
                 .send()
                 .await?
