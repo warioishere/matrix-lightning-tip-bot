@@ -215,20 +215,29 @@ impl BusinessLogicContext {
                    "Could not pay invoice");
             }
         }
- 
-        if memo.is_some() {
-            Ok(CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?} with memo {:?}",
-                                              sender,
-                                              amount,
-                                              recipient,
-                                              memo.clone().unwrap()).as_str()))
+        let mut reply = if memo.is_some() {
+            CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?} with memo {:?}",
+                                             sender,
+                                             amount,
+                                             recipient,
+                                             memo.clone().unwrap()).as_str())
+        } else {
+            CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?}",
+                                             sender,
+                                             amount,
+                                             recipient).as_str())
+        };
+
+        if parse_lnurl(recipient).is_none() {
+            let receiver_msg = if memo.is_some() {
+                format!("{} you received {} Sats from {} with memo {}", recipient, amount, sender, memo.clone().unwrap())
+            } else {
+                format!("{} you received {} Sats from {}", recipient, amount, sender)
+            };
+            reply.receiver_message = Some(receiver_msg);
         }
-        else {
-            Ok(CommandReply::text_only(format!("{:?} sent {:?} Sats to {:?}",
-                                              sender,
-                                              amount,
-                                              recipient).as_str()))
-        }
+
+        Ok(reply)
     }
 
     async fn do_process_invoice(&self,

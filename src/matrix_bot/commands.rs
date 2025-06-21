@@ -22,6 +22,7 @@ pub struct CommandReply {
     pub image: Option<Vec<u8>>,
     pub payment_hash: Option<String>,
     pub in_key: Option<String>,
+    pub receiver_message: Option<String>,
 }
 
 impl Command {
@@ -143,6 +144,7 @@ impl CommandReply {
             image: None,
             payment_hash: None,
             in_key: None,
+            receiver_message: None,
         }
     }
 
@@ -152,6 +154,7 @@ impl CommandReply {
             image: Some(image),
             payment_hash: None,
             in_key: None,
+            receiver_message: None,
         }
     }
 
