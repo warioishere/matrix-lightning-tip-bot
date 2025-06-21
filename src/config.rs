@@ -22,8 +22,6 @@ pub mod config {
                    lnbits_bearer_token: &str,
                    database_url: &str,
                    debug_level: &str,
-                   donate_user: Option<&String>,
-                   btc_donation_address: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
             Config {
                 matrix_server: matrix_server.to_string(),
@@ -33,8 +31,6 @@ pub mod config {
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 database_url: database_url.to_string(),
                 debug_level: debug_level.to_string(),
-                donate_user: donate_user.map(|s| s.to_string()),
-                btc_donation_address: btc_donation_address.to_string(),
                 allowed_matrix_servers
             }
         }
@@ -81,15 +77,6 @@ pub mod config {
                 .default_value("Info")
                 .required(false)
                 .help("debugging level"))
-            .arg(Arg::new("donate-user")
-                .long("donate-user")
-                .required(false)
-                .help("The user receiving any donations"))
-            .arg(Arg::new("btc-donation-address")
-                .long("btc-donation-address")
-                .default_value("bc1q72dzh04fwxx780w05twtmn5fxzegpawdn5zg3g")
-                .required(false)
-                .help("The BTC address to display for donations"))
             .arg(Arg::new("allowed-matrix-server")
                 .long("allowed-matrix-server")
                 .num_args(1)
@@ -113,10 +100,6 @@ pub mod config {
 
         let debug_level = matches.get_one::<String>("debug-level").unwrap();
 
-        let donate_user = matches.get_one::<String>("donate-user");
-
-        let btc_donation_address = matches.get_one::<String>("btc-donation-address").unwrap();
-
         let allowed_matrix_servers = matches
             .get_many::<String>("allowed-matrix-server")
             .map(|vals| vals.map(|v| v.to_string()).collect::<Vec<String>>());
@@ -128,8 +111,6 @@ pub mod config {
                     lnbits_bearer_token,
                     database_url,
                     debug_level,
-                    donate_user,
-                    btc_donation_address,
                     allowed_matrix_servers)
     }
 }
