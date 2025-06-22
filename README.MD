@@ -27,7 +27,6 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 !version - Print the version of this bot
 ```
 
-My MLTB instance runs on this LightningNode https://amboss.space/node/034efe9ae4eecacc0a2d7cdff59852665398968cfea347185479cc049ccac5e8ec
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
 
@@ -41,6 +40,8 @@ Running your own instance is done by:
 7. Running a MLTB
 
 ### Install prequisites
+
+You need to use latest Version of LNBits (1.1.0 currently) older versions prior to 1.0.0 will not work. 
 
 Install java and libsqlite3 on your debian/ubuntu server with
 `sudo apt install openjdk-17-jdk`
