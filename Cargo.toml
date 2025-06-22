@@ -7,15 +7,15 @@ edition = "2021"
 # features = ["full"]
 
 [dependencies]
-chrono = { version = "0.4.38", features = ["serde"] }
-reqwest = { version = "0.12.8", features = ["json"] }
+chrono = { version = "0.4.41", features = ["serde"] }
+reqwest = { version = "0.12.20", features = ["json"] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
-clap = "4.5.18"
+clap = "4.5.40"
 argfile = "0.2.1"
 wild = "2.2.1"
 url = "2.5.2"
-matrix-sdk = { version = "0.7.1", features = ["e2e-encryption", "qrcode"] }
+matrix-sdk = { version = "0.12.0", features = ["e2e-encryption", "qrcode"] }
 tokio = { version = "1.40.0", features = ["full"] }
 simple_logger = "5.0.0"
 log = "0.4.22"
