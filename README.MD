@@ -105,6 +105,5 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - send info when created invoice has been paid (✅)
 - limit usage to specific matrix instances (✅)
 - Inform users about donated funds (✅)
-- Graceliously handle multiple bots is a single
 - integrate a fiat/rate conversion tool (✅)
 - send sats directly to a lightning address (✅)
