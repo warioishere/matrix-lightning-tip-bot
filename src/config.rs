@@ -9,6 +9,7 @@ pub mod config {
         pub matrix_password: String,
         pub lnbits_url: String,
         pub lnbits_bearer_token: String,
+        pub lnbits_api_key: String,
         pub database_url: String,
         pub debug_level: String,
         pub allowed_matrix_servers: Option<Vec<String>>
@@ -20,6 +21,7 @@ pub mod config {
                    matrix_password: &str,
                    lnbits_url: &str,
                    lnbits_bearer_token: &str,
+                   lnbits_api_key: &str,
                    database_url: &str,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
@@ -29,6 +31,7 @@ pub mod config {
                 matrix_password: matrix_password.to_string(),
                 lnbits_url: lnbits_url.to_string(),
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
+                lnbits_api_key: lnbits_api_key.to_string(),
                 database_url: database_url.to_string(),
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
@@ -68,6 +71,10 @@ pub mod config {
                 .long("lnbits-bearer-token")
                 .required(true)
                 .help("lnbits bearer token"))
+            .arg(Arg::new("lnbits-api-key")
+                .long("lnbits-api-key")
+                .required(true)
+                .help("lnbits api key"))
             .arg(Arg::new("database-url")
                 .long("database-url")
                 .required(true)
@@ -95,6 +102,7 @@ pub mod config {
         let lnbits_url = matches.get_one::<String>("lnbits-url").unwrap();
 
         let lnbits_bearer_token = matches.get_one::<String>("lnbits-bearer-token").unwrap();
+        let lnbits_api_key = matches.get_one::<String>("lnbits-api-key").unwrap();
 
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
@@ -109,6 +117,7 @@ pub mod config {
                     matrix_password,
                     lnbits_url,
                     lnbits_bearer_token,
+                    lnbits_api_key,
                     database_url,
                     debug_level,
                     allowed_matrix_servers)

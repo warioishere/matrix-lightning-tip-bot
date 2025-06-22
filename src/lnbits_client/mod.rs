@@ -105,7 +105,7 @@ pub mod lnbits_client {
                 wallet: wallet_id.to_string(),
                 min: 1,
                 max: 500_000,
-                currency: "sats".to_string(),
+                currency: "sat".to_string(),
                 username: username.to_string(),
                 zaps: false,
             }
@@ -161,6 +161,7 @@ pub struct LNBitsClient {
     pub url: String,
     pub headers: HeaderMap,
     client: Client,
+    api_key: String,
 }
 
     impl LNBitsClient {
@@ -168,6 +169,14 @@ pub struct LNBitsClient {
         fn headers_with_key(&self, key: &str) -> HeaderMap {
             let mut headers = self.headers.clone();
             headers.insert("X-Api-Key", HeaderValue::from_str(key).unwrap());
+            headers
+        }
+
+        fn headers_with_api_key(&self) -> HeaderMap {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+            headers.insert("X-Api-Key", HeaderValue::from_str(&self.api_key).unwrap());
             headers
         }
 
@@ -186,6 +195,7 @@ pub struct LNBitsClient {
                 url: config.lnbits_url.clone(),
                 headers,
                 client: Client::new(),
+                api_key: config.lnbits_api_key.clone(),
             }
         }
 
@@ -299,9 +309,8 @@ pub struct LNBitsClient {
         }
 
         pub async fn create_lnurl_address(&self,
-                                          wallet: &Wallet,
                                           request: &LnAddressRequest) -> Result<LnAddressResponse, reqwest::Error> {
-            let headers = self.headers_with_key(&wallet.admin_key);
+            let headers = self.headers_with_api_key();
 
             let response = self
                 .client

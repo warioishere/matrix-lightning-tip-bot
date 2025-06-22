@@ -327,7 +327,7 @@ impl BusinessLogicContext {
 
         let params = LnAddressRequest::new(username, &wallet.id);
 
-        let response = try_with!(self.lnbits_client.create_lnurl_address(&wallet, &params).await,
+        let response = try_with!(self.lnbits_client.create_lnurl_address(&params).await,
                                  "Could not create ln address");
 
         Ok(CommandReply::text_only(format!("{}", response.lnurl).as_str()))
