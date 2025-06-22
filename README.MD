@@ -107,3 +107,5 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - Inform users about donated funds (✅)
 - integrate a fiat/rate conversion tool (✅)
 - send sats directly to a lightning address (✅)
+- list your transactions through the bot
+- show your ln-address again
