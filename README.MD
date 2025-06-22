@@ -14,10 +14,11 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 
 ```
 !tip     - Reply to a message to tip it: !tip <amount> [<memo>]
+!generate-ln-address - Get your own LN Address: !generate-ln-address <your address name>
 !balance - Check your balance: !balance
 !send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]
 !invoice - Receive over Lightning: !invoice <amount> [<memo>]
-!pay     - Pay  over Lightning: !pay <invoice>
+!pay     - Pay an invoice over Lightning: !pay <invoice>
 !help    - Read this help.\n\
 !donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>
 !party   - Start a Party: !party
