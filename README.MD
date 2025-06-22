@@ -63,13 +63,15 @@ Generating the local Database file is done with:
 Create a new user on your matrix server which will be used my MLTB.
 
 ### Construct a config file
-Construct a file `config.conf` with the following entries:
+Construct a file `config.conf` with the following entries. The LNbits API key is
+used for creating lightning addresses without the bearer token:
 ```
 --matrix-server=https://matrix.my-matrixserver.org     # Your Matrix Instance
 --matrix-username=your_user_for_the_bot                # The username of the account your created
 --matrix-password=the_passwort_for_that_user_account   # The password of your matrix bot
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
+--lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
 --database-url=/db/db.db                               # The absolute path to your generated db.
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
@@ -97,7 +99,7 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 
 # Scheduled TODOs
 - make this work as an registered AS (Application Service) on your matrix homeserver instead of using a a matrix-user-account
-- automatically creates a lightning address for the user which is display in the !help command
+- generate your own ln-address with the command !generate-ln-address (✅)
 - send info when created invoice has been paid (✅)
 - limit usage to specific matrix instances (✅)
 - Inform users about donated funds (✅)
