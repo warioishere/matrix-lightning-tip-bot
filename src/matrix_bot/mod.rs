@@ -8,16 +8,15 @@ pub mod matrix_bot {
 
     use matrix_sdk::attachment::AttachmentConfig;
     use matrix_sdk::room::RoomMember;
-    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContent, TextMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation};
+    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
 
     use crate::{Config, DataLayer};
     use crate::lnbits_client::lnbits_client::LNBitsClient;
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
     use mime;
-    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, ServerName, UserId};
+    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName, UserId};
     
-    use matrix_sdk::ruma::events::room::message::Relation::Reply;
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
@@ -90,20 +89,6 @@ pub mod matrix_bot {
         }
     }
 
-    fn reply_event_id(option: Option<&Relation<RoomMessageEventContentWithoutRelation>>) -> Option<OwnedEventId> {
-        if option.is_none() {  None }
-        else {
-            match option.as_ref().unwrap() {
-                Reply { in_reply_to} => {
-                    Some(in_reply_to.event_id.clone())
-                },
-                _ => {
-                    None
-                }
-            }
-        }
-    }
-
     fn last_line<'a>(msg_body: &str) -> String {
         msg_body.split('\n').last().unwrap().to_string()
     }
@@ -120,32 +105,23 @@ pub mod matrix_bot {
     async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
-                             original_event: Option<OwnedEventId>,
                              extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
         let msg_body = extracted_msg_body.msg_body.clone().unwrap().to_lowercase(); // We don't care about the case of the command.
 
-        if last_line(msg_body.as_str()).starts_with("!tip") && !original_event.is_none() {
-            let original_event = room.event(&original_event.unwrap()).await;
-            match original_event {
-                Ok(original_event_) => {
-                    let answer = original_event_.event.deserialize();
-                    let replyee: OwnedUserId = match answer {
-                        Ok(any_room_event) => {
-                            any_room_event.sender().to_owned()
-                        }
-                        _ => {
-                            bail!("Could not parse answer {:?}", answer)
-                        }
-                    };
-                    tip(sender,
-                        last_line(msg_body.as_str()).as_str(),
-                        replyee.as_str())
-                },
-                Err(simple_error) => {
-                    log::error!("Error while retrieving original message {:?} ..", simple_error);
-                    bail!("Could not retrieve original message {:?}", simple_error)
-                }
-            }
+        if last_line(msg_body.as_str()).starts_with("!tip") {
+            let replyee = extracted_msg_body
+                .formatted_msg_body
+                .as_deref()
+                .and_then(|body| extract_user_from_formatted_msg_body(body));
+            let replyee = replyee.ok_or_else(|| {
+                log::warn!("Could not determine reply target from formatted body");
+                SimpleError::new("No reply target")
+            })?;
+            tip(
+                sender,
+                last_line(msg_body.as_str()).as_str(),
+                replyee.as_str(),
+            )
         }  else if msg_body.starts_with("!balance") {
             balance(sender)
         } else if msg_body.starts_with("!send") {
@@ -308,7 +284,7 @@ pub mod matrix_bot {
 
     fn extract_user_from_formatted_msg_body(formatted_msg_body: &str) -> Option<OwnedUserId> {
 
-        let dom = tl::parse(formatted_msg_body,tl::ParserOptions::default());
+        let dom = tl::parse(formatted_msg_body, tl::ParserOptions::default()).unwrap();
         let mut img = dom.query_selector("a[href]").unwrap();
         let img = img.next();
         if img.is_none() {
@@ -326,7 +302,7 @@ pub mod matrix_bot {
                                  .as_tag()
                                  .unwrap()
                                  .attributes()
-                                 .get_attribute("href")
+                                 .get("href")
                                  .unwrap()
                                  .unwrap()
                                  .as_utf8_str()
@@ -414,7 +390,11 @@ pub mod matrix_bot {
                 Url::parse(config.matrix_server.as_str())
                     .expect("Couldn't parse the homeserver URL");
 
-            let client = Client::new(homeserver_url).await?;
+            let client = Client::builder()
+                .homeserver_url(homeserver_url)
+                .build()
+                .await
+                .expect("failed to build client");
 
             let matrix_bot = MatrixBot {
                 business_logic_contex: BusinessLogicContext::new(lnbits_client,
@@ -468,8 +448,6 @@ pub mod matrix_bot {
                             log::info!("Ignoring message from disallowed server: {}", event.sender.server_name());
                             return;
                         }
-                        let original_event = reply_event_id(event.content.relates_to.as_ref());
-
                         let extracted_msg_body = extract_body(&event);
                         if extracted_msg_body.msg_body.is_none() { return } // No body to process
 
@@ -496,7 +474,6 @@ pub mod matrix_bot {
                         let command = extract_command(&room,
                                                       sender,
                                                       &event,
-                                                      original_event,
                                                       &extracted_msg_body).await;
 
 
@@ -637,7 +614,9 @@ pub mod matrix_bot {
 
             self.client
                 .matrix_auth()
-                .login_username(user_id, self.config.matrix_password.as_str()).await?;
+                .login_username(user_id, self.config.matrix_password.as_str())
+                .send()
+                .await?;
 
             log::info!("Done with preliminary steps ..");
 
