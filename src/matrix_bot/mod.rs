@@ -20,7 +20,7 @@ pub mod matrix_bot {
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, fiat_to_sats, sats_to_fiat};
+    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, fiat_to_sats, sats_to_fiat, transactions};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -124,6 +124,8 @@ pub mod matrix_bot {
             )
         }  else if msg_body.starts_with("!balance") {
             balance(sender)
+        } else if msg_body.starts_with("!transactions") {
+            transactions(sender)
         } else if msg_body.starts_with("!send") {
             let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
             match msg_body {

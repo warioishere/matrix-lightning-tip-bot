@@ -14,6 +14,7 @@ pub enum Command  {
     GenerateLnAddress { sender: String, username: String },
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
+    Transactions { sender: String },
     None,
 }
 
@@ -144,6 +145,10 @@ pub fn sats_to_fiat(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let currency = split[2].to_string();
     Ok(Command::SatsToFiat { sender: sender.to_string(), amount, currency })
+}
+
+pub fn transactions(sender: &str) -> Result<Command, SimpleError> {
+    Ok(Command::Transactions { sender: sender.to_string() })
 }
 
 impl CommandReply {
