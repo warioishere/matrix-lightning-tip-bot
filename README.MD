@@ -19,6 +19,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 !send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]
 !invoice - Receive over Lightning: !invoice <amount> [<memo>]
 !pay     - Pay an invoice over Lightning: !pay <invoice>
+!transactions - List your transactions: !transactions
 !help    - Read this help.\n\
 !donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>
 !party   - Start a Party: !party
@@ -107,5 +108,5 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - Inform users about donated funds (✅)
 - integrate a fiat/rate conversion tool (✅)
 - send sats directly to a lightning address (✅)
-- list your transactions through the bot
+- list your transactions through the bot (✅)
 - show your ln-address again

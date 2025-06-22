@@ -308,6 +308,25 @@ pub struct LNBitsClient {
             Ok(response.get("paid").and_then(|v| v.as_bool()).unwrap_or(false))
         }
 
+        pub async fn payments(&self,
+                              wallet: &Wallet,
+                              limit: usize) -> Result<Vec<serde_json::Value>, reqwest::Error> {
+            let headers = self.headers_with_key(&wallet.in_key);
+
+            let url = format!("{}/api/v1/payments?limit={}", self.url, limit);
+
+            let response = self
+                .client
+                .get(url)
+                .headers(headers)
+                .send()
+                .await?
+                .json::<Vec<serde_json::Value>>()
+                .await?;
+
+            Ok(response)
+        }
+
         pub async fn create_lnurl_address(&self,
                                           request: &LnAddressRequest) -> Result<LnAddressResponse, reqwest::Error> {
             let headers = self.headers_with_api_key();

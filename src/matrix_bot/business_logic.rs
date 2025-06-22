@@ -16,6 +16,7 @@ const HELP_COMMANDS: &str = "!tip     - Reply to a message to tip it: !tip <amou
 !send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com>, or a lightning address <lightning@address.com> [<memo>]\n\
 !invoice - Receive over Lightning: !invoice <amount> [<memo>]\n\
 !pay     - Pay  over Lightning: !pay <invoice>\n\
+!transactions - List your transactions: !transactions\n\
 !help    - Read this help.\n\
 !donate  - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
 !party   - Start a Party: !party\n\
@@ -81,6 +82,10 @@ impl BusinessLogicContext {
             Command::Balance { sender } => {
                 try_with!(self.do_process_balance(sender.as_str()).await,
                                                   "Could not process balance")
+            },
+            Command::Transactions { sender } => {
+                try_with!(self.do_process_transactions(sender.as_str()).await,
+                          "Could not process transactions")
             },
             Command::Pay { sender, invoice } => {
                 try_with!(self.do_process_pay(sender.as_str(), invoice.as_str()).await,
@@ -293,6 +298,34 @@ impl BusinessLogicContext {
                       else { balance.unwrap() / 1000  }; // Minisatashis are a bitch.
 
         Ok(CommandReply::text_only(format!("Your balance is {} Sats", balance).as_str()))
+    }
+
+    async fn do_process_transactions(&self, sender: &str) -> Result<CommandReply, SimpleError> {
+        log::info!("processing transactions command ..");
+
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
+                                  "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
+                                      "Could not load wallet");
+
+        let payments = try_with!(self.lnbits_client.payments(&wallet, 60).await,
+                                 "Could not load payments");
+
+        let mut lines: Vec<String> = Vec::new();
+        for p in payments {
+            if let Some(amount_msat) = p.get("amount").and_then(|v| v.as_i64()) {
+                let amount_sat = amount_msat / 1000;
+                let symbol = if amount_sat < 0 { "↑" } else { "↓" };
+                let line = format!("{} {} Sats", symbol, amount_sat.abs());
+                lines.push(line);
+            }
+        }
+
+        if lines.is_empty() {
+            Ok(CommandReply::text_only("No transactions found"))
+        } else {
+            Ok(CommandReply::text_only(lines.join("\n").as_str()))
+        }
     }
 
     async fn do_process_pay(&self, sender: &str, bol11_invoice: &str) -> Result<CommandReply, SimpleError> {
