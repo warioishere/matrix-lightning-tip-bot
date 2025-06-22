@@ -23,8 +23,10 @@ dotenv = "0.15.0"
 diesel = { version = "2.2.4", features = ["sqlite", "numeric", "chrono", "r2d2", "uuid"] }
 simple-error = "0.3.1"
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
-qrcode-generator = "4.1.9"
+qrcode-generator = "5.0.0"
 mime = "0.3.17"
-lightning-invoice = "0.32.0"
-tl = "0.4.4"
-lnurl-rs = "0.8.0"
+lightning-invoice = "0.33.2"
+tl = "0.7.8"
+lnurl-rs = "0.9.0"
+ureq = "2.12.1"
+email_address = "0.2.9
