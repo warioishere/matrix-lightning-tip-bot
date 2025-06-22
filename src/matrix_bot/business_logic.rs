@@ -4,6 +4,7 @@ use simple_error::{bail, SimpleError, try_with};
 use uuid::Uuid;
 use qrcode_generator::QrCodeEcc;
 use crate::{Config, DataLayer, LNBitsClient};
+use url::Url;
 use crate::data_layer::data_layer::NewMatrixId2LNBitsId;
 use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
@@ -330,7 +331,16 @@ impl BusinessLogicContext {
         let response = try_with!(self.lnbits_client.create_lnurl_address(&params).await,
                                  "Could not create ln address");
 
-        Ok(CommandReply::text_only(format!("{}", response.lnurl).as_str()))
+        let host = Url::parse(self.config.lnbits_url.as_str())
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| self.config.lnbits_url.clone());
+
+        let ln_address = format!("{}@{}", username, host);
+
+        Ok(CommandReply::text_only(
+            format!("{} -> {}", ln_address, response.lnurl).as_str(),
+        ))
     }
 
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {
