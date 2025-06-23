@@ -8,3 +8,13 @@ diesel::table! {
         date_created -> Text,
     }
 }
+
+diesel::table! {
+    ln_addresses (id) {
+        id -> Integer,
+        matrix_id -> Text,
+        ln_address -> Text,
+        lnurl -> Text,
+        date_created -> Text,
+    }
+}

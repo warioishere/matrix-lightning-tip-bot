@@ -6,10 +6,14 @@ pub mod data_layer {
     use diesel::prelude::*;
 
     use crate::Config;
-    pub  use crate::data_layer::models::{LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId};
+    pub  use crate::data_layer::models::{
+        LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
+        LnAddress, NewLnAddress,
+    };
     use crate::data_layer::schema;
 
     use schema::matrix_id_2_lnbits_id::dsl::*;
+    use schema::ln_addresses::dsl as ln_addresses_dsl;
 
     #[derive(Clone)]
     pub struct DataLayer {
@@ -50,6 +54,22 @@ pub mod data_layer {
                                                   .load::<MatrixId2LNBitsId>(&mut connection)
                                                   .expect("Error looking up stuff");
             result.remove(0).get_lnbits_id()
+        }
+
+        pub fn insert_ln_address(&self, new_ln_address: NewLnAddress) {
+            let mut connection = self.establish_connection();
+            diesel::insert_into(schema::ln_addresses::table)
+                .values(&new_ln_address)
+                .execute(&mut connection)
+                .expect("Error saving ln address");
+        }
+
+        pub fn ln_addresses_for_matrix_id(&self, matrix_id_: &str) -> Vec<LnAddress> {
+            let mut connection = self.establish_connection();
+            ln_addresses_dsl::ln_addresses
+                .filter(ln_addresses_dsl::matrix_id.eq(matrix_id_))
+                .load::<LnAddress>(&mut connection)
+                .expect("Error loading ln addresses")
         }
     }
 }

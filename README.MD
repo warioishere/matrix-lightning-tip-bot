@@ -12,21 +12,20 @@ MLTB can either be used directly or be self run. Running your own instance requi
 ## Directly
 I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.yourdevice.ch. Invite it to a room to get started immediately. After joining the bot should display the possible commands which are:
 
-```
-!tip     - Reply to a message to tip it: !tip <amount> [<memo>]
-!generate-ln-address - Get your own LN Address: !generate-ln-address <your address name>
-!balance - Check your balance: !balance
-!send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]
-!invoice - Receive over Lightning: !invoice <amount> [<memo>]
-!pay     - Pay an invoice over Lightning: !pay <invoice>
-!transactions - List your transactions: !transactions
-!help    - Read this help.\n\
-!donate  - Donate to the matrix-lighting-tip-bot project: !donate <amount>
-!party   - Start a Party: !party
-!fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>
-!sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>
-!version - Print the version of this bot
-```
+* **!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`
+* **!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`
+* **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`
+* **!balance** - Check your balance: `!balance`
+* **!send** - Send funds to a user: `!send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]`
+* **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`
+* **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
+* **!transactions** - List your transactions: `!transactions`
+* **!help** - Read this help: `!help`
+* **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
+* **!party** - Start a Party: `!party`
+* **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`
+* **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
+* **!version** - Print the version of this bot: `!version`
 
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
@@ -109,4 +108,4 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - integrate a fiat/rate conversion tool (✅)
 - send sats directly to a lightning address (✅)
 - list your transactions through the bot (✅)
-- show your ln-address again
+- show your ln-address again (✅)
