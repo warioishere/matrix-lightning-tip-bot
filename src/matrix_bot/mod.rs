@@ -20,7 +20,7 @@ pub mod matrix_bot {
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, fiat_to_sats, sats_to_fiat, transactions};
+    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -74,10 +74,10 @@ pub mod matrix_bot {
         log::info!("Successfully joined room {}", room.room_id());
 
         // Upon succesfull join send a single message
-        let content = RoomMessageEventContent::text_plain(
-            "Thanks for inviting me. I support the following commands:\n".to_owned() +
-                  business_logic_context.get_help_content().as_str()
-        );
+        let plain = "Thanks for inviting me. I support the following commands:\n".to_owned()
+            + business_logic_context.get_help_content().as_str();
+        let html = crate::matrix_bot::utils::markdown_to_html(plain.as_str());
+        let content = RoomMessageEventContent::text_html(plain, html);
 
         let result = room.send(content).await;
 
@@ -161,6 +161,8 @@ pub mod matrix_bot {
             version()
         } else if msg_body.starts_with("!generate-ln-address") {
             generate_ln_address(sender, msg_body.as_str())
+        } else if msg_body.starts_with("!show-ln-addresses") {
+            show_ln_addresses(sender)
         } else if msg_body.starts_with("!fiat-to-sats") {
             fiat_to_sats(sender, msg_body.as_str())
         } else if msg_body.starts_with("!sats-to-fiat") {
@@ -357,7 +359,8 @@ pub mod matrix_bot {
             unsigned: event.unsigned.clone(),
         };
 
-        let reply_message = RoomMessageEventContent::text_plain(reply);
+        let html = crate::matrix_bot::utils::markdown_to_html(reply);
+        let reply_message = RoomMessageEventContent::text_html(reply.to_string(), html);
 
         let content = reply_message.make_reply_to(
             &original_room_message_event,

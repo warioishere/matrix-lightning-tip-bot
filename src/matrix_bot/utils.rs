@@ -11,3 +11,32 @@ pub fn parse_lnurl(input: &str) -> Option<LnUrl> {
         },
     }
 }
+
+pub fn markdown_to_html(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\n' {
+            result.push_str("<br>");
+        } else if ch == '*' {
+            if chars.peek() == Some(&'*') {
+                chars.next();
+                result.push_str("<strong>");
+                while let Some(c) = chars.next() {
+                    if c == '*' && chars.peek() == Some(&'*') {
+                        chars.next();
+                        result.push_str("</strong>");
+                        break;
+                    } else {
+                        result.push(c);
+                    }
+                }
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}

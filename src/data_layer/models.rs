@@ -49,3 +49,31 @@ impl LNBitsId {
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(table_name = ln_addresses)]
+pub struct LnAddress {
+    pub id: Option<i32>,
+    pub matrix_id: String,
+    pub ln_address: String,
+    pub lnurl: String,
+    pub date_created: String,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = ln_addresses)]
+pub struct NewLnAddress<'a> {
+    pub matrix_id: &'a str,
+    pub ln_address: &'a str,
+    pub lnurl: &'a str,
+    pub date_created: &'a str,
+}
+
+impl NewLnAddress<'_> {
+    pub fn new<'a>(matrix_id: &'a str,
+                   ln_address: &'a str,
+                   lnurl: &'a str,
+                   date_created: &'a str) -> NewLnAddress<'a> {
+        NewLnAddress { matrix_id, ln_address, lnurl, date_created }
+    }
+}

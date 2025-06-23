@@ -5,25 +5,26 @@ use uuid::Uuid;
 use qrcode_generator::QrCodeEcc;
 use crate::{Config, DataLayer, LNBitsClient};
 use url::Url;
-use crate::data_layer::data_layer::NewMatrixId2LNBitsId;
+use crate::data_layer::data_layer::{NewMatrixId2LNBitsId, NewLnAddress};
 use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
 
-const HELP_COMMANDS: &str = "!tip     - Reply to a message to tip it: !tip <amount> [<memo>]\n\
-!balance - Check your balance: !balance\n\
-!send    - Send funds to a user: !send <amount> <@user> or <@user:domain.com>, or a lightning address <lightning@address.com> [<memo>]\n\
-!invoice - Receive over Lightning: !invoice <amount> [<memo>]\n\
-!pay     - Pay  over Lightning: !pay <invoice>\n\
-!transactions - List your transactions: !transactions\n\
-!help    - Read this help.\n\
-!donate  - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
-!party   - Start a Party: !party\n\
-!generate-ln-address - Generate a Lightning address: !generate-ln-address <username>\n\
-!fiat-to-sats - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
-!sats-to-fiat - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
-!version - Print the version of this bot";
+const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amount> [<memo>]\n\
+**!generate-ln-address** - Get your own LN Address: !generate-ln-address <your address name>\n\
+**!show-ln-addresses** - Show your generated LN Addresses: !show-ln-addresses\n\
+**!balance** - Check your balance: !balance\n\
+**!send** - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]\n\
+**!invoice** - Receive over Lightning: !invoice <amount> [<memo>]\n\
+**!pay** - Pay an invoice over Lightning: !pay <invoice>\n\
+**!transactions** - List your transactions: !transactions\n\
+**!help** - Read this help: !help\n\
+**!donate** - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
+**!party** - Start a Party: !party\n\
+**!fiat-to-sats** - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
+**!sats-to-fiat** - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
+**!version** - Print the version of this bot: !version";
 
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
@@ -108,6 +109,10 @@ impl BusinessLogicContext {
             Command::GenerateLnAddress { sender, username } => {
                 try_with!(self.do_process_generate_ln_address(sender.as_str(), username.as_str()).await,
                           "Could not process generate-ln-address")
+            },
+            Command::ShowLnAddresses { sender } => {
+                try_with!(self.do_process_show_ln_addresses(sender.as_str()).await,
+                          "Could not process show-ln-addresses")
             },
             Command::FiatToSats { sender, amount, currency } => {
                 try_with!(self.do_process_fiat_conversion(sender.as_str(), amount, currency.as_str(), true).await,
@@ -370,10 +375,34 @@ impl BusinessLogicContext {
             .unwrap_or_else(|| self.config.lnbits_url.clone());
 
         let ln_address = format!("{}@{}", username, host);
+        let date_created = Utc::now().to_string();
+        let new_ln_address = NewLnAddress::new(
+            sender,
+            ln_address.as_str(),
+            response.lnurl.as_str(),
+            date_created.as_str(),
+        );
+        self.data_layer.insert_ln_address(new_ln_address);
 
         Ok(CommandReply::text_only(
             format!("{} -> {}", ln_address, response.lnurl).as_str(),
         ))
+    }
+
+    async fn do_process_show_ln_addresses(&self, sender: &str) -> Result<CommandReply, SimpleError> {
+        log::info!("processing show ln addresses command ..");
+
+        let addresses = self.data_layer.ln_addresses_for_matrix_id(sender);
+        if addresses.is_empty() {
+            return Ok(CommandReply::text_only("No lightning addresses found"));
+        }
+
+        let lines: Vec<String> = addresses
+            .iter()
+            .map(|a| format!("{} -> {}", a.ln_address, a.lnurl))
+            .collect();
+
+        Ok(CommandReply::text_only(lines.join("\n").as_str()))
     }
 
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {

@@ -12,6 +12,7 @@ pub enum Command  {
     Party   { },
     Version { },
     GenerateLnAddress { sender: String, username: String },
+    ShowLnAddresses { sender: String },
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
@@ -125,6 +126,10 @@ pub fn generate_ln_address(sender: &str, text: &str) -> Result<Command, SimpleEr
     }
     let username = split[1].to_string();
     Ok(Command::GenerateLnAddress { sender: sender.to_string(), username })
+}
+
+pub fn show_ln_addresses(sender: &str) -> Result<Command, SimpleError> {
+    Ok(Command::ShowLnAddresses { sender: sender.to_string() })
 }
 
 pub fn fiat_to_sats(sender: &str, text: &str) -> Result<Command, SimpleError> {
