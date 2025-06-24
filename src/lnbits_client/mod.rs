@@ -350,6 +350,7 @@ pub struct LNBitsClient {
     pub struct CreateUserArgs {
         pub wallet_name: String,
         pub admin_id: String,
+        #[serde(rename = "username")]
         pub user_name: String,
         pub email: String,
         pub password: String,
@@ -358,13 +359,13 @@ pub struct LNBitsClient {
     impl CreateUserArgs {
         pub fn new(wallet_name: &str,
                admin_id: &str,
-               user_name: &str,
+               username: &str,
                email: &str,
                password: &str) -> CreateUserArgs {
             CreateUserArgs {
                 wallet_name: String::from(wallet_name),
                 admin_id: String::from(admin_id),
-                user_name: String::from(user_name),
+                user_name: String::from(username),
                 email: String::from(email),
                 password: String::from(password)
             }
