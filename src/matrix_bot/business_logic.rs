@@ -19,6 +19,7 @@ const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amou
 **!invoice** - Receive over Lightning: !invoice <amount> [<memo>]\n\
 **!pay** - Pay an invoice over Lightning: !pay <invoice>\n\
 **!transactions** - List your transactions: !transactions\n\
+**!link-to-zeus-wallet** - Connect your wallet in Zeus: !link-to-zeus-wallet\n\
 **!help** - Read this help: !help\n\
 **!donate** - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
 **!party** - Start a Party: !party\n\
@@ -87,6 +88,10 @@ impl BusinessLogicContext {
             Command::Transactions { sender } => {
                 try_with!(self.do_process_transactions(sender.as_str()).await,
                           "Could not process transactions")
+            },
+            Command::LinkToZeusWallet { sender } => {
+                try_with!(self.do_process_link_to_zeus_wallet(sender.as_str()).await,
+                          "Could not process link-to-zeus-wallet")
             },
             Command::Pay { sender, invoice } => {
                 try_with!(self.do_process_pay(sender.as_str(), invoice.as_str()).await,
@@ -354,6 +359,29 @@ impl BusinessLogicContext {
 
     async fn do_process_version(&self) -> Result<CommandReply, SimpleError> {
         Ok(CommandReply::text_only(format!("My version is {:?}", env!("CARGO_PKG_VERSION")).as_str()))
+    }
+
+    async fn do_process_link_to_zeus_wallet(&self, sender: &str) -> Result<CommandReply, SimpleError> {
+        log::info!("processing link-to-zeus-wallet command ..");
+
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
+                                  "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
+                                      "Could not load wallet");
+
+        let mut base = self.config.lnbits_url.clone();
+        if !base.ends_with('/') {
+            base.push('/');
+        }
+        let lndhub_url = format!("lndhub://admin:{}@{}lndhub/ext/", wallet.admin_key, base);
+
+        let image = try_with!(qrcode_generator::to_png_to_vec(
+            lndhub_url.as_str(),
+            QrCodeEcc::Medium,
+            256
+        ), "Could not generate QR code");
+
+        Ok(CommandReply::new(lndhub_url.as_str(), image))
     }
 
     async fn do_process_generate_ln_address(&self, sender: &str, username: &str) -> Result<CommandReply, SimpleError> {
