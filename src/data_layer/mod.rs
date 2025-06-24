@@ -68,6 +68,7 @@ pub mod data_layer {
             let mut connection = self.establish_connection();
             ln_addresses_dsl::ln_addresses
                 .filter(ln_addresses_dsl::matrix_id.eq(matrix_id_))
+                .select(LnAddress::as_select())
                 .load::<LnAddress>(&mut connection)
                 .expect("Error loading ln addresses")
         }
