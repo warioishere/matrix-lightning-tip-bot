@@ -433,10 +433,22 @@ impl BusinessLogicContext {
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
                                       "Could not load wallet");
 
-        let base = self.config.lnbits_url.trim_end_matches('/');
-        let lndhub_url = format!("lndhub://admin:{}@{}/lndhub/ext/", wallet.admin_key, base);
-        let lndhub_details = format!("\nLndhub details\n\nUser: `admin`\nPassword: `{}`\nURL: `{}/lndhub/ext/`",
-                                     wallet.admin_key, base);
+        let url = Url::parse(self.config.lnbits_url.as_str())
+            .ok()
+            .and_then(|u| {
+                u.host_str().map(|host| {
+                    if let Some(port) = u.port() {
+                        format!("{}:{}", host, port)
+                    } else {
+                        host.to_string()
+                    }
+                })
+            })
+            .unwrap_or_else(|| self.config.lnbits_url.clone());
+
+        let lndhub_url = format!("lndhub://admin:{}@{}/lndhub/ext/", wallet.admin_key, url);
+        let lndhub_details = format!("\nLndhub details\n\nUser: `admin`\nPassword: `{}`\nURL: `https://{}/lndhub/ext/`",
+                                     wallet.admin_key, url);
 
         let image: Vec<u8> = try_with!(qrcode_generator::to_png_to_vec(lndhub_url.as_str(),
                                                               QrCodeEcc::Medium,

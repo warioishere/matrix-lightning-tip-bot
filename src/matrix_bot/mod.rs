@@ -169,8 +169,6 @@ pub mod matrix_bot {
             fiat_to_sats(sender, msg_body.as_str())
         } else if msg_body.starts_with("!sats-to-fiat") {
             sats_to_fiat(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!link-to-zeus-wallet") {
-            link_to_zeus_wallet(sender)
         } else {
             Ok(Command::None)
         }
