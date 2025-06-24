@@ -20,6 +20,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
+* **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`
 * **!help** - Read this help: `!help`
 * **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
 * **!party** - Start a Party: `!party`
