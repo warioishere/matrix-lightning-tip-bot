@@ -199,9 +199,10 @@ pub struct LNBitsClient {
             }
         }
 
-        pub async fn create_user_with_initial_wallet(&self,
-                                                     create_user_args: &CreateUserArgs) -> Result<LNBitsUser, reqwest::Error> {
-
+        pub async fn create_user_with_initial_wallet(
+            &self,
+            create_user_args: &CreateUserArgs,
+        ) -> Result<LNBitsUser, reqwest::Error> {
             let response = self
                 .client
                 .post([self.url.as_str(), "/users/api/v1/user"].join(""))
@@ -209,9 +210,42 @@ pub struct LNBitsClient {
                 .json(create_user_args)
                 .send()
                 .await?
-                .json::<LNBitsUser>()
-                .await?;
-            Ok(response)
+                .error_for_status()?;
+
+            let json: serde_json::Value = response.json().await?;
+
+            // LNbits changed the response format over time. Try to extract the
+            // user ID and admin key from a couple of possible structures so we
+            // remain compatible with different versions.
+            let user_json = if json.get("id").is_some() {
+                json.clone()
+            } else {
+                json.get("user").cloned().unwrap_or_default()
+            };
+
+            let id = user_json
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            let admin = user_json
+                .get("wallets")
+                .and_then(|ws| ws.get(0))
+                .and_then(|w| w.get("admin"))
+                .and_then(|v| v.as_str())
+                .or_else(|| user_json.get("admin").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+
+            Ok(LNBitsUser {
+                id,
+                name: "".to_string(),
+                email: "".to_string(),
+                admin,
+                password: None,
+                wallets: None,
+            })
         }
 
         pub async fn wallet_info(&self, wallet: &Wallet) -> Result<WalletInfo, reqwest::Error> {
