@@ -109,3 +109,4 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - send sats directly to a lightning address (✅)
 - list your transactions through the bot (✅)
 - show your ln-address again (✅)
+- link your wallet to Zeus Android or iOS App
