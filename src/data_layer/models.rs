@@ -1,5 +1,6 @@
 use crate::data_layer::schema::*;
 use serde::{Deserialize, Serialize};
+use diesel::sqlite::Sqlite;
 
 #[derive(Debug, Serialize, Deserialize, Queryable)]
 pub struct MatrixId2LNBitsId {
@@ -52,6 +53,7 @@ impl LNBitsId {
 
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = ln_addresses)]
+#[diesel(check_for_backend(Sqlite))]
 pub struct LnAddress {
     pub id: i32,
     pub matrix_id: String,
