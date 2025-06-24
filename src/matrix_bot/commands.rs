@@ -16,6 +16,7 @@ pub enum Command  {
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
+    LinkToZeusWallet { sender: String },
     None,
 }
 
@@ -154,6 +155,10 @@ pub fn sats_to_fiat(sender: &str, text: &str) -> Result<Command, SimpleError> {
 
 pub fn transactions(sender: &str) -> Result<Command, SimpleError> {
     Ok(Command::Transactions { sender: sender.to_string() })
+}
+
+pub fn link_to_zeus_wallet(sender: &str) -> Result<Command, SimpleError> {
+    Ok(Command::LinkToZeusWallet { sender: sender.to_string() })
 }
 
 impl CommandReply {
