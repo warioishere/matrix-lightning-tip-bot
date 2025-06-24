@@ -19,6 +19,7 @@ const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amou
 **!invoice** - Receive over Lightning: !invoice <amount> [<memo>]\n\
 **!pay** - Pay an invoice over Lightning: !pay <invoice>\n\
 **!transactions** - List your transactions: !transactions\n\
+**!link-to-zeus-wallet** - Link your wallet to Zeus: !link-to-zeus-wallet\n\
 **!help** - Read this help: !help\n\
 **!donate** - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
 **!party** - Start a Party: !party\n\
@@ -121,6 +122,10 @@ impl BusinessLogicContext {
             Command::SatsToFiat { sender, amount, currency } => {
                 try_with!(self.do_process_fiat_conversion(sender.as_str(), amount as f64, currency.as_str(), false).await,
                       "Could not process SatsToFiat")
+            },
+            Command::LinkZeusWallet { sender } => {
+                try_with!(self.do_process_link_zeus_wallet(sender.as_str()).await,
+                          "Could not process link-to-zeus-wallet")
             },
             _ => {
                 log::error!("Encountered unsuported command {:?} ..", command);
@@ -418,6 +423,27 @@ impl BusinessLogicContext {
             Err(error) => Err(error)
         }
 
+    }
+
+    async fn do_process_link_zeus_wallet(&self, sender: &str) -> Result<CommandReply, SimpleError> {
+        log::info!("processing link zeus wallet command ..");
+
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
+                                  "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
+                                      "Could not load wallet");
+
+        let base = self.config.lnbits_url.trim_end_matches('/');
+        let lndhub_url = format!("lndhub://admin:{}@{}/lndhub/ext/", wallet.admin_key, base);
+        let lndhub_details = format!("\nLndhub details\n\nUser: `admin`\nPassword: `{}`\nURL: `{}/lndhub/ext/`",
+                                     wallet.admin_key, base);
+
+        let image: Vec<u8> = try_with!(qrcode_generator::to_png_to_vec(lndhub_url.as_str(),
+                                                              QrCodeEcc::Medium,
+                                                              256),
+                                       "Could not generate QR code");
+
+        Ok(CommandReply::new(format!("`{}`\n{}", lndhub_url, lndhub_details).as_str(), image))
     }
 
     async fn matrix_id2lnbits_id(&self, matrix_id: &str) -> Result<LNBitsId, SimpleError> {

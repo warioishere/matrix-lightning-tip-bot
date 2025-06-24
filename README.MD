@@ -20,6 +20,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
+* **!link-to-zeus-wallet** - Link your wallet to Zeus: `!link-to-zeus-wallet`
 * **!help** - Read this help: `!help`
 * **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
 * **!party** - Start a Party: `!party`
@@ -109,4 +110,4 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 - send sats directly to a lightning address (✅)
 - list your transactions through the bot (✅)
 - show your ln-address again (✅)
-- link your wallet to Zeus Android or iOS App
+- link your wallet to Zeus Android or iOS App (✅)

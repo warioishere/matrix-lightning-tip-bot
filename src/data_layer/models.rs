@@ -53,7 +53,7 @@ impl LNBitsId {
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
 #[diesel(table_name = ln_addresses)]
 pub struct LnAddress {
-    pub id: Option<i32>,
+    pub id: i32,
     pub matrix_id: String,
     pub ln_address: String,
     pub lnurl: String,

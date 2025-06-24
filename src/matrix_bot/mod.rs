@@ -20,7 +20,7 @@ pub mod matrix_bot {
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions};
+    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -126,6 +126,8 @@ pub mod matrix_bot {
             balance(sender)
         } else if msg_body.starts_with("!transactions") {
             transactions(sender)
+        } else if msg_body.starts_with("!link-to-zeus-wallet") {
+            link_to_zeus_wallet(sender)
         } else if msg_body.starts_with("!send") {
             let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
             match msg_body {
@@ -167,6 +169,8 @@ pub mod matrix_bot {
             fiat_to_sats(sender, msg_body.as_str())
         } else if msg_body.starts_with("!sats-to-fiat") {
             sats_to_fiat(sender, msg_body.as_str())
+        } else if msg_body.starts_with("!link-to-zeus-wallet") {
+            link_to_zeus_wallet(sender)
         } else {
             Ok(Command::None)
         }
