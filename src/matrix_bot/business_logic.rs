@@ -464,13 +464,13 @@ impl BusinessLogicContext {
             let admin_id = Uuid::new_v4().to_string();
             let user_name = matrix_id;
             let email = "";
-            let password = "";
+            let password = Uuid::new_v4().to_string();
 
             let create_user_args = CreateUserArgs::new(wallet_name.as_str(),
                                                        admin_id.as_str(),
                                                        user_name,
                                                        email,
-                                                       password);
+                                                       password.as_str());
             let result = self.lnbits_client.create_user_with_initial_wallet(&create_user_args).await;
             match  result {
                 Ok(result) => {
