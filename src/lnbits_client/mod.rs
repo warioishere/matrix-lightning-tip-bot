@@ -354,20 +354,24 @@ pub struct LNBitsClient {
         pub user_name: String,
         pub email: String,
         pub password: String,
+        pub password_repeat: String,
     }
 
     impl CreateUserArgs {
-        pub fn new(wallet_name: &str,
-               admin_id: &str,
-               username: &str,
-               email: &str,
-               password: &str) -> CreateUserArgs {
+        pub fn new(
+            wallet_name: &str,
+            admin_id: &str,
+            username: &str,
+            email: &str,
+            password: &str,
+        ) -> CreateUserArgs {
             CreateUserArgs {
                 wallet_name: String::from(wallet_name),
                 admin_id: String::from(admin_id),
                 user_name: String::from(username),
                 email: String::from(email),
-                password: String::from(password)
+                password: String::from(password),
+                password_repeat: String::from(password),
             }
         }
     }
