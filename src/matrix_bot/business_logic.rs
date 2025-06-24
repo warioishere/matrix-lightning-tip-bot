@@ -463,19 +463,16 @@ impl BusinessLogicContext {
             let wallet_name = matrix_id.to_owned() + "wallet";
             let admin_id = Uuid::new_v4().to_string();
 
-            // LNbits enforces a maximum length for the username field (20
-            // characters at the time of writing).  Use the matrix id but
-            // sanitize it so it does not exceed the limit and only contains
-            // simple ascii characters.
-            let mut username: String = matrix_id
-                .trim_start_matches('@')
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                .take(20)
+            // Generate a short random username so the server admin cannot
+            // deanonymize the Matrix user easily. LNbits requires the
+            // username field to be unique. We therefore create an 8 digit
+            // random number as the username.
+            let username: String = (0..8)
+                .map(|_| {
+                    let d: u8 = rand::random::<u8>() % 10;
+                    char::from(b'0' + d)
+                })
                 .collect();
-            if username.is_empty() {
-                username.push_str("user");
-            }
 
             let email = "";
             let password = Uuid::new_v4().to_string();
