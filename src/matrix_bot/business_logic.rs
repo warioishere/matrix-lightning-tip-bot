@@ -433,22 +433,21 @@ impl BusinessLogicContext {
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
                                       "Could not load wallet");
 
-        let url = Url::parse(self.config.lnbits_url.as_str())
-            .ok()
-            .and_then(|u| {
-                u.host_str().map(|host| {
-                    if let Some(port) = u.port() {
-                        format!("{}:{}", host, port)
-                    } else {
-                        host.to_string()
-                    }
-                })
-            })
-            .unwrap_or_else(|| self.config.lnbits_url.clone());
+        // Build the URL exactly like the SatsMobi implementation so wallets
+        // such as Zeus accept the QR code. Keep the configured base URL with
+        // its scheme and any path components.
+        let mut base = self.config.lnbits_url.clone();
+        if !base.ends_with('/') {
+            base.push('/');
+        }
 
-        let lndhub_url = format!("lndhub://admin:{}@{}/lndhub/ext/", wallet.admin_key, url);
-        let lndhub_details = format!("\nLndhub details\n\nUser: `admin`\nPassword: `{}`\nURL: `https://{}/lndhub/ext/`",
-                                     wallet.admin_key, url);
+        let lndhub_url = format!("lndhub://admin:{}@{}lndhub/ext/", wallet.admin_key, base);
+        let http_url = format!("{}lndhub/ext/", base);
+        let lndhub_details = format!(
+            "\nLndhub details\n\nUser: `admin`\nPassword: `{}`\nURL: `{}`",
+            wallet.admin_key,
+            http_url
+        );
 
         let image: Vec<u8> = try_with!(qrcode_generator::to_png_to_vec(lndhub_url.as_str(),
                                                               QrCodeEcc::Medium,
