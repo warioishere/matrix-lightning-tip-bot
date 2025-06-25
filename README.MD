@@ -49,7 +49,8 @@ Install java and libsqlite3 on your debian/ubuntu server with
 `sudo apt install libsqlite3-dev`
 
 ### Create a new user for your lnbits instance
-Create a new user on your instance which manages the wallets. Ensure the users API is enabled for that user (providing access to `/users/api/v1/user`). The user can be a normal user and does not need to be an admin or superuser account
+- Create a new user on your instance which manages the wallets. Ensure the users API is enabled for that user (providing access to `/users/api/v1/user`). The user can be a normal user and does not need to be an admin or superuser account
+- enable LNDHub for new users so the users can link their wallet the Zeus
 
 ### Build Docker image
 Building the Docker image is done with:
