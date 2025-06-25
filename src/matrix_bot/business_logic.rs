@@ -451,17 +451,23 @@ impl BusinessLogicContext {
     async fn matrix_id2lnbits_id(&self, matrix_id: &str) -> Result<LNBitsId, SimpleError> {
         if !(self.data_layer.lnbits_id_exists_for_matrix_id(matrix_id)) {
 
-            let wallet_name = matrix_id.to_owned() + "wallet";
-            let admin_id = Uuid::new_v4().to_string();
-            let user_name = matrix_id;
-            let email = "";
-            let password = "";
+            // Only use the local part of the Matrix ID as the LNBits username
+            let mut user_name = matrix_id.trim_start_matches('@');
+            if let Some((name, _)) = user_name.split_once(':') {
+                user_name = name;
+            }
 
-            let create_user_args = CreateUserArgs::new(wallet_name.as_str(),
-                                                       admin_id.as_str(),
-                                                       user_name,
-                                                       email,
-                                                       password);
+            // LNBits usernames may have a maximum length of 20 characters
+            let user_name = if user_name.len() > 20 {
+                &user_name[..20]
+            } else {
+                user_name
+            };
+
+            let password_full = Uuid::new_v4().simple().to_string();
+            let password = &password_full[..8];
+
+            let create_user_args = CreateUserArgs::new(user_name, password);
             let result = self.lnbits_client.create_user_with_initial_wallet(&create_user_args).await;
             match  result {
                 Ok(result) => {
@@ -469,7 +475,7 @@ impl BusinessLogicContext {
                     let date_created = Utc::now().to_string();
                     let new_matrix_id_2_lnbits_id = NewMatrixId2LNBitsId::new(matrix_id,
                                                                               result.id.as_str(),
-                                                                              result.admin.as_str(),
+                                                                              result.id.as_str(),
                                                                               date_created.as_str());
                     self.data_layer.insert_matrix_id_2_lnbits_id(new_matrix_id_2_lnbits_id);
                 },
