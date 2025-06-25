@@ -130,26 +130,17 @@ pub mod lnbits_client {
     #[derive(Debug, Deserialize, Serialize)]
     pub struct LNBitsUser {
         pub id: String,
-        pub name: String,
-        // Primary key
-        pub email: String,
-        pub admin: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub password: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub wallets: Option<Vec<Wallet>>
+        pub email: Option<String>,
+        pub username: String,
     }
 
     impl LNBitsUser {
         pub fn from_id(lnbits_id: &str) -> LNBitsUser {
-            // TODO(AE): Is there a differnce between id & admin id?
             LNBitsUser {
                 id: lnbits_id.to_string(),
-                name: "".to_string(),
-                email: "".to_string(),
-                admin: lnbits_id.to_string(),
-                password: None,
-                wallets: None,
+                email: None,
+                username: String::new(),
             }
         }
     }
@@ -348,25 +339,19 @@ pub struct LNBitsClient {
 
     #[derive(Debug, Deserialize, Serialize)]
     pub struct CreateUserArgs {
-        pub wallet_name: String,
-        pub admin_id: String,
-        pub user_name: String,
-        pub email: String,
+        pub username: String,
         pub password: String,
+        pub password_repeat: String,
+        pub extensions: Vec<String>,
     }
 
     impl CreateUserArgs {
-        pub fn new(wallet_name: &str,
-               admin_id: &str,
-               user_name: &str,
-               email: &str,
-               password: &str) -> CreateUserArgs {
+        pub fn new(username: &str, password: &str) -> CreateUserArgs {
             CreateUserArgs {
-                wallet_name: String::from(wallet_name),
-                admin_id: String::from(admin_id),
-                user_name: String::from(user_name),
-                email: String::from(email),
-                password: String::from(password)
+                username: String::from(username),
+                password: String::from(password),
+                password_repeat: String::from(password),
+                extensions: vec![],
             }
         }
     }
