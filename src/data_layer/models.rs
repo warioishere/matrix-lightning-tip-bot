@@ -1,7 +1,10 @@
 use crate::data_layer::schema::*;
 use serde::{Deserialize, Serialize};
+use diesel::sqlite::Sqlite;
 
-#[derive(Debug, Serialize, Deserialize, Queryable)]
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(table_name = matrix_id_2_lnbits_id)]
+#[diesel(primary_key(matrix_id))]
 pub struct MatrixId2LNBitsId {
     pub matrix_id: String,
     pub lnbits_id: String,
@@ -50,10 +53,11 @@ impl LNBitsId {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = ln_addresses)]
+#[diesel(check_for_backend(Sqlite))]
 pub struct LnAddress {
-    pub id: i32,
+    pub id: Option<i32>,
     pub matrix_id: String,
     pub ln_address: String,
     pub lnurl: String,
@@ -76,4 +80,21 @@ impl NewLnAddress<'_> {
                    date_created: &'a str) -> NewLnAddress<'a> {
         NewLnAddress { matrix_id, ln_address, lnurl, date_created }
     }
+}
+
+#[derive(Debug, Queryable, Identifiable, Selectable)]
+#[diesel(table_name = matrix_store)]
+#[diesel(check_for_backend(Sqlite))]
+pub struct MatrixStore {
+    pub id: Option<i32>,
+    pub state: Vec<u8>,
+    pub crypto: Vec<u8>,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = matrix_store)]
+pub struct NewMatrixStore<'a> {
+    pub id: i32,
+    pub state: &'a [u8],
+    pub crypto: &'a [u8],
 }

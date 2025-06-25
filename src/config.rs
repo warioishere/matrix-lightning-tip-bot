@@ -1,38 +1,42 @@
 pub mod config {
 
     use clap::{Arg, Command, ArgAction};
+    use crate::application_service::registration::Registration;
 
     #[derive(Clone, Debug)]
     pub struct Config {
         pub matrix_server: String,
-        pub matrix_username: String,
-        pub matrix_password: String,
+        pub registration: Registration,
         pub lnbits_url: String,
         pub lnbits_bearer_token: String,
         pub lnbits_api_key: String,
         pub database_url: String,
+        pub store_path: String,
+        pub avatar_path: Option<String>,
         pub debug_level: String,
-        pub allowed_matrix_servers: Option<Vec<String>>
+        pub allowed_matrix_servers: Option<Vec<String>>,
     }
 
     impl Config {
         pub fn new(matrix_server: &str,
-                   matrix_username: &str,
-                   matrix_password: &str,
+                   registration: Registration,
                    lnbits_url: &str,
                    lnbits_bearer_token: &str,
                    lnbits_api_key: &str,
                    database_url: &str,
+                   store_path: &str,
+                   avatar_path: Option<String>,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
             Config {
                 matrix_server: matrix_server.to_string(),
-                matrix_username: matrix_username.to_string(),
-                matrix_password: matrix_password.to_string(),
+                registration,
                 lnbits_url: lnbits_url.to_string(),
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 lnbits_api_key: lnbits_api_key.to_string(),
                 database_url: database_url.to_string(),
+                store_path: store_path.to_string(),
+                avatar_path,
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
             }
@@ -48,21 +52,17 @@ pub mod config {
         ).unwrap();
 
         let matches = Command::new("LN-Matrix-Bot")
-            .version("0.8.1")
+            .version("0.9.0")
             .author("AE")
             .about("LN-Matrix-Bot")
             .arg(Arg::new("matrix-server")
                 .long("matrix-server")
                 .required(true)
                 .help("Server"))
-            .arg(Arg::new("matrix-username")
-                .long("matrix-username")
+            .arg(Arg::new("registration-file")
+                .long("registration-file")
                 .required(true)
-                .help("Bot username"))
-            .arg(Arg::new("matrix-password")
-                .long("matrix-password")
-                .required(true)
-                .help("Bot password"))
+                .help("Path to the application service registration YAML"))
             .arg(Arg::new("lnbits-url")
                 .long("lnbits-url")
                 .required(true)
@@ -79,6 +79,14 @@ pub mod config {
                 .long("database-url")
                 .required(true)
                 .help("database url"))
+            .arg(Arg::new("store-path")
+                .long("store-path")
+                .required(false)
+                .help("Path for Matrix client store"))
+            .arg(Arg::new("avatar-path")
+                .long("avatar-path")
+                .required(false)
+                .help("mxc:// URL to set as the bot's avatar"))
             .arg(Arg::new("debug-level")
                 .long("debug-level")
                 .default_value("Info")
@@ -95,9 +103,9 @@ pub mod config {
 
         let matrix_server = matches.get_one::<String>("matrix-server").unwrap();
 
-        let matrix_username = matches.get_one::<String>("matrix-username").unwrap();
-
-        let matrix_password = matches.get_one::<String>("matrix-password").unwrap();
+        let registration_file = matches.get_one::<String>("registration-file").unwrap();
+        let registration_path = std::path::Path::new(registration_file);
+        let registration = Registration::load(registration_path).expect("Could not load registration file");
 
         let lnbits_url = matches.get_one::<String>("lnbits-url").unwrap();
 
@@ -106,6 +114,22 @@ pub mod config {
 
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
+        let store_path = matches
+            .get_one::<String>("store-path")
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                let db_path = std::path::Path::new(database_url);
+                db_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+        let avatar_path = matches
+            .get_one::<String>("avatar-path")
+            .map(|s| s.to_string());
+
         let debug_level = matches.get_one::<String>("debug-level").unwrap();
 
         let allowed_matrix_servers = matches
@@ -113,12 +137,13 @@ pub mod config {
             .map(|vals| vals.map(|v| v.to_string()).collect::<Vec<String>>());
 
         Config::new(matrix_server,
-                    matrix_username,
-                    matrix_password,
+                    registration,
                     lnbits_url,
                     lnbits_bearer_token,
                     lnbits_api_key,
                     database_url,
+                    store_path.as_str(),
+                    avatar_path,
                     debug_level,
                     allowed_matrix_servers)
     }

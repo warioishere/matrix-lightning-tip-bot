@@ -8,7 +8,7 @@ use url::Url;
 use crate::data_layer::data_layer::{NewMatrixId2LNBitsId, NewLnAddress};
 use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
-use crate::matrix_bot::matrix_bot::LNBitsId;
+use crate::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
 
 const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amount> [<memo>]\n\
@@ -48,6 +48,10 @@ impl BusinessLogicContext {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn data_layer(&self) -> &DataLayer {
+        &self.data_layer
     }
 
     pub fn get_help_content(&self) -> String {

@@ -31,6 +31,8 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
 
+The bot stores its session data locally. Encryption keys are kept in the `matrix_store` table and messages are encrypted on the application service side without calling the client `/sync` API.
+
 Running your own instance is done by:
 1. Install prequisites
 2. Create a new user for your lnbits instance
@@ -63,25 +65,104 @@ Generating the local Database file is done with:
 2. Install diesel (sqlite only) by running `cargo install diesel_cli --no-default-features --features sqlite`.
 3. Run `diesel migration run --database-url=wallet-bot.db` to generate a local sqlite Database file.
 
-### Create a new matrix user for the bot
-Create a new user on your matrix server which will be used my MLTB.
+### Create a registration YAML file
+Matrix application services authenticate using a registration file instead of a
+regular Matrix account. Create a YAML file describing the bot and register it
+with your homeserver.
+
+Below is a minimal example derived from the `Registration` struct in
+`src/application_service/registration.rs`:
+
+```yaml
+id: lightning-tip-bot
+as_token: "<app-service-token>"
+hs_token: "<homeserver-token>"
+sender_localpart: "lightning-bot"
+url: "http://localhost:9000"
+namespaces:
+  users:
+    - regex: "@lightning-bot:.*"
+      exclusive: true
+```
+
+`sender_localpart` defines the Matrix localpart that the bot uses as its name.
+
+For Synapse add the path to this file to the `app_service_config_files` list in
+`homeserver.yaml` and restart your server. Provide the same path to the bot via
+the `--registration-file` command line option. This replaces the earlier
+username/password login.
+
+You can generate a minimal registration file using the bundled utility:
+
+```bash
+cargo run --bin generate_registration -- \
+    --id lightning-tip-bot \
+    --sender-localpart lightning-bot \
+    --url http://localhost:9000 \
+    --output registration.yaml
+```
+
+The command writes `registration.yaml` with random tokens similar to the
+example above. Register this file with your homeserver and pass the path via
+`--registration-file` when starting the bot.
 
 ### Construct a config file
 Construct a file `config.conf` with the following entries. The LNbits API key is
 used for creating lightning addresses without the bearer token:
 ```
 --matrix-server=https://matrix.my-matrixserver.org     # Your Matrix Instance
---matrix-username=your_user_for_the_bot                # The username of the account your created
---matrix-password=the_passwort_for_that_user_account   # The password of your matrix bot
+--registration-file=/path/to/registration.yaml         # Path to the application service registration
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
 --database-url=/db/db.db                               # The absolute path to your generated db.
+--store-path=/store                                   # Temporary directory for Matrix client cache (defaults to parent of --database-url)
+--avatar-path=mxc://your.server/abcdef               # Optional avatar URL for the bot
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
+`--store-path` only controls where temporary cache files are placed.
+Encrypted client keys are automatically saved in the database's `matrix_store` table.
+If `--avatar-path` is set, the bot sets its avatar URL to this mxc link at startup.
+
 ### Running
 Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.
+
+For a persistent deployment you can run the container with `--restart always` and bind your actual paths:
+
+```bash
+sudo docker run -d \
+  --restart always \
+  -v /opt/lntipbot/mltb-wario/data/config/config_ruma.conf:/data/config/config.conf \
+  -v /opt/lntipbot/mltb-wario/data/db/tipbot_ruma.db:/data/db/tipbot_ruma.db \
+  -v /opt/lntipbot/mltb-wario/data/config/registration.yaml:/data/config/registration.yaml \
+  matrix-lightning-tip-bot matrix-lightning-tip-bot @/data/config/config.conf
+```
+
+`config_ruma.conf` may look like this:
+
+```
+--matrix-server=https://matrix.yourdevice.ch
+--registration-file=/data/config/registration.yaml
+--database-url=/data/db/tipbot_ruma.db
+--avatar-path=mxc://your.server/avatar
+--lnbits-url=https://lnbits.yourdevice.ch
+--lnbits-bearer-token=xxx
+--lnbits-api-key=xxx
+```
+
+The bot exposes the Matrix Application Service API at the `url` given in the registration file. The port and **path** from that URL are used for the embedded HTTP server. Ensure your homeserver posts transactions to the same path.
+Your homeserver **must** be able to reach this address and is responsible for
+pushing events there. Once the registration file is listed under
+`app_service_config_files`, Synapse will POST transactions to
+`/_matrix/app/v1/transactions/{txnId}` at that URL. The bot does not call
+`/sync`; all events are delivered via these transactions. The bot verifies the request's
+`access_token` query parameter matches the `hs_token` from the registration
+file so that only your homeserver can deliver events. Queries to
+`/_matrix/app/v1/users/{userId}` follow the same rule and will return
+`401 Unauthorized` if the token is missing or incorrect.
+Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
+format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.to_device`, and other optional fields.
 
 It is also possible to use the docker-compose file. This will require .env file containing the entries
 ```
@@ -102,7 +183,7 @@ Contributors lightning address (me) = node-runner@btcpay.yourdevice.ch
 A big thanks the people over at LightningTipBot and @AE9999. This fork-project is in no way ment to replace or critique the great work they have been doing, merely to give more people access to the lightning network.
 
 # Scheduled TODOs
-- make this work as an registered AS (Application Service) on your matrix homeserver instead of using a matrix-user-account
+- make this work as an registered AS (Application Service) on your matrix homeserver instead of using a matrix-user-account (✅)
 - generate your own ln-address with the command !generate-ln-address (✅)
 - send info when created invoice has been paid (✅)
 - limit usage to specific matrix instances (✅)

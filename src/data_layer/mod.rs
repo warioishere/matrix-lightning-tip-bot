@@ -4,16 +4,18 @@ mod schema;
 pub mod data_layer {
 
     use diesel::prelude::*;
+    use diesel::SelectableHelper;
 
     use crate::Config;
     pub  use crate::data_layer::models::{
         LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
-        LnAddress, NewLnAddress,
+        LnAddress, NewLnAddress, MatrixStore, NewMatrixStore,
     };
     use crate::data_layer::schema;
 
     use schema::matrix_id_2_lnbits_id::dsl::*;
     use schema::ln_addresses::dsl as ln_addresses_dsl;
+    use schema::matrix_store::dsl as matrix_store_dsl;
 
     #[derive(Clone)]
     pub struct DataLayer {
@@ -68,8 +70,29 @@ pub mod data_layer {
             let mut connection = self.establish_connection();
             ln_addresses_dsl::ln_addresses
                 .filter(ln_addresses_dsl::matrix_id.eq(matrix_id_))
+                .select(LnAddress::as_select())
                 .load::<LnAddress>(&mut connection)
                 .expect("Error loading ln addresses")
+        }
+
+        pub fn load_matrix_store(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+            let mut connection = self.establish_connection();
+            matrix_store_dsl::matrix_store
+                .filter(matrix_store_dsl::id.eq(1))
+                .select(MatrixStore::as_select())
+                .load::<MatrixStore>(&mut connection)
+                .ok()
+                .and_then(|mut v| v.pop())
+                .map(|r| (r.state, r.crypto))
+        }
+
+        pub fn save_matrix_store(&self, state: &[u8], crypto: &[u8]) {
+            let mut connection = self.establish_connection();
+            let new_store = NewMatrixStore { id: 1, state, crypto };
+            diesel::replace_into(schema::matrix_store::table)
+                .values(&new_store)
+                .execute(&mut connection)
+                .expect("Error saving matrix store");
         }
     }
 }

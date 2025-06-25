@@ -1,25 +1,14 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::sync::mpsc;
-use reqwest::cookie::Jar;
 use reqwest::{Client, ClientBuilder};
 use std::sync::Mutex;
-use http::{HeaderMap, Method};
 use ruma::api::client::sync::sync_events::DeviceLists;
 use serde::{Deserialize, Serialize};
 use warp::{Filter, Rejection};
 use crate::application_service::registration::Registration;
 use crate::application_service::txnid::TransactionIDCache;
-use ruma::api::{
-    IncomingRequest,
-};
-use std::future::Future;
-use std::pin::Pin;
-use serde_json::{
-    from_slice as from_json_slice, Value as JsonValue,
-};
-use ruma::api::OutgoingResponse;
-use http::Request;
+use ruma::api::appservice::query::query_user_id::v1::Request as QueryUserIdRequest;
 
 type Event = String;
 
@@ -40,10 +29,8 @@ pub struct ApplicationServiceState {
 
 impl ApplicationServiceState {
     async fn new(create_opts: CreateOpts) -> Self {
-        // Configure the HTTP client with a cookie jar
-        let jar = Arc::new(Jar::default());
+        // Simple HTTP client for outgoing requests
         let http_client = ClientBuilder::new()
-            .cookie_provider(jar.clone())
             .timeout(Duration::from_secs(180))
             .build()
             .expect("Failed to create HTTP client");
@@ -83,153 +70,6 @@ impl ApplicationServiceState {
 // }
 
 
-// Helper function to convert HTTP method to Warp filter
-fn method_to_filter(method: &Method) -> warp::filters::BoxedFilter<()> {
-    match method {
-        &Method::GET => warp::get().boxed(),
-        &Method::POST => warp::post().boxed(),
-        &Method::PUT => warp::put().boxed(),
-        &Method::DELETE => warp::delete().boxed(),
-        _ => panic!("Unsupported HTTP method: {:?}", method),
-    }
-}
-
-// impl<Req, E, F, Fut> FilterExtender for F
-// where
-//     Req: IncomingRequest + Send + 'static,
-//     F: Fn(Arc<Mutex<ApplicationServiceState>>, Req) -> Fut + Clone  + Send + 'static,
-//     Fut: Future<Output = Result<Req::OutgoingResponse, E>> + Send,
-//     E: warp::reject::Reject + Send + 'static,
-// {
-//
-//     fn add_to_filter(self,
-//                      filter: warp::filters::BoxedFilter<(impl warp::Reply,)>,
-//                      state: Arc<Mutex<ApplicationServiceState>>) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
-//
-//         let meta = <Req as IncomingRequest>::METADATA;
-//         let mut combined_filter = filter;
-//
-//         for path in meta.history.all_paths() {
-//             let handler = self.clone();
-//             let state = state.clone();
-//             let method_filter = method_to_filter(&meta.method);
-//
-//             let endpoint =
-//                 warp::path(path).and(method_filter)
-//                                 .and(warp::any().map(move || state.clone()))
-//                                 .and_then(move |state, req| async move {
-//                                     handler(state, req).await
-//                                                        .map(|response| warp::reply::json(&response))
-//                                                        .map_err(warp::reject::custom)
-//                                 }).boxed();
-//
-//             combined_filter = combined_filter.or(endpoint)
-//                                              .unify()
-//                                              .boxed();
-//         }
-//
-//         combined_filter
-//     }
-// }
-
-
-
-// macro_rules! impl_ruma_handler {
-//     ( $($ty:ident),* $(,)? ) => {
-//
-//     }
-// }
-
-// Apply the macro
-//impl_ruma_handler!();
-
-// Invoke the macro
-// impl_ruma_handler!(T1);
-// impl_ruma_handler!(T1, T2);
-// impl_ruma_handler!(T1, T2, T3);
-// impl_ruma_handler!(T1, T2, T3, T4);
-// impl_ruma_handler!(T1, T2, T3, T4, T5);
-// impl_ruma_handler!(T1, T2, T3, T4, T5, T6);
-// impl_ruma_handler!(T1, T2, T3, T4, T5, T6, T7);
-// impl_ruma_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
-
-// Build the router with Warp filters
-use ruma::api::appservice::query::query_user_id::v1::{Request as QueryUserIdRequest, Response as QueryUserIdResponse};
-use warp::path::FullPath;
-
-type QueryUserIdHandler = fn(
-    Arc<Mutex<ApplicationServiceState>>,
-    QueryUserIdRequest,
-) -> Pin<Box<dyn Future<Output = Result<QueryUserIdResponse, Rejection>> + Send>>;
-
-pub fn create_user_id_filter(
-    state: Arc<Mutex<ApplicationServiceState>>,
-    handler: QueryUserIdHandler,
-) {
-    let meta = QueryUserIdRequest::METADATA;
-
-    for path in meta.history.all_paths() {
-        let state = state.clone();
-        let method_filter = method_to_filter(&meta.method);
-
-        let endpoint = warp::path(path)
-            .and(method_filter)
-            .and(warp::any().map(move || state.clone())) // Provide `state`
-            .and(warp::header::headers_cloned()) // Extract headers
-            .and(warp::body::bytes()) // Extract the raw body as `Bytes`
-            .and(warp::method()) // Extract the HTTP method
-            .and(warp::path::full()) // Extract the full path
-            .and_then(move |state, headers: HeaderMap, body, method, path: FullPath| async move {
-                // Build the `http::Request` manually
-                let uri = format!("{}", path.as_str());
-                let mut request = Request::builder()
-                    .method(method)
-                    .uri(uri);
-
-                for header in headers {
-                    let name = header.0.unwrap().as_str();
-                    let value = header.1.to_str().unwrap();
-                    request = request.header(name, value);
-                }
-
-                // Set the body
-                let request = request.body(body).map_err(warp::reject::custom)?;
-
-                // Convert the request using `try_from_http_request`
-                match QueryUserIdRequest::try_from_http_request(request) {
-                    Ok(req) => {
-                        // Pass the `state` and parsed `req` to the handler
-                        match handler(state, req).await {
-                            Ok(response) => {
-                                let response = response.try_into_http_response::<Vec<u8>>().unwrap();
-                                let json_body: JsonValue = from_json_slice(response.body()).unwrap();
-                                Ok::<_, Rejection>(warp::reply::json(&json_body))
-                            }
-                            Err(err) => Err(err),
-                        }
-                    }
-                    Err(err) => Err(warp::reject::custom(err)), // Handle conversion error
-                }
-            });
-    }
-}
-
-pub fn build_router(
-    state: Arc<Mutex<ApplicationServiceState>>,
-) -> impl Filter + Clone {
-    // Starting with a base filter (e.g., a health check)
-
-    // Starting with a base filter (e.g., a health check)
-    let base_filter = warp::path!("health")
-        .and(warp::any().map(move || state.clone()))
-        .map(|state: Arc<Mutex<ApplicationServiceState>>| {
-            // Example health check with access to state
-            // let _ = state.lock().unwrap(); // Just to demonstrate state usage
-            warp::reply::json(&"OK")
-        });
-
-    base_filter
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HostConfig {
@@ -246,4 +86,142 @@ pub struct CreateOpts {
     homeserver_domain: String,
     homeserver_url: String,
     host_config: HostConfig,
+}
+
+use crate::matrix_bot::MatrixBot;
+
+#[derive(Deserialize)]
+struct TransactionRequest {
+    /// Timeline events for this transaction
+    pub events: Vec<serde_json::Value>,
+    /// Ephemeral events (ignored)
+    #[serde(default)]
+    pub ephemeral: Vec<serde_json::Value>,
+    /// To-device messages (ignored)
+    #[serde(default, rename = "de.sorunome.msc2409.to_device")]
+    pub to_device: Vec<serde_json::Value>,
+}
+
+async fn transactions_handler(
+    txn_id: String,
+    query: std::collections::HashMap<String, String>,
+    req: TransactionRequest,
+    state: Arc<Mutex<ApplicationServiceState>>,
+    bot: Arc<MatrixBot>,
+    server_token: String,
+) -> Result<impl warp::Reply, Rejection> {
+    use warp::http::StatusCode;
+
+    if query.get("access_token") != Some(&server_token) {
+        return Ok(warp::reply::with_status("", StatusCode::UNAUTHORIZED));
+    }
+
+    {
+        let mut state_guard = state.lock().unwrap();
+        if state_guard.txn_idc_cache.is_processed(&txn_id) {
+            return Ok(warp::reply::with_status("", StatusCode::OK));
+        }
+        state_guard.txn_idc_cache.mark_processed(txn_id);
+    }
+
+    bot.handle_transaction_events(req.events).await;
+    Ok(warp::reply::with_status("", StatusCode::OK))
+}
+
+pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
+    // Derive host, port and base path from the registration URL
+    let url = url::Url::parse(&registration.url).expect("Invalid registration URL");
+    let port = url.port().unwrap_or(9000);
+    let base_segments: Vec<String> = url
+        .path_segments()
+        .map(|s| s.filter(|seg| !seg.is_empty()).map(|seg| seg.to_string()).collect())
+        .unwrap_or_default();
+
+    let create_opts = CreateOpts {
+        registration: registration.clone(),
+        homeserver_domain: String::new(),
+        homeserver_url: String::new(),
+        host_config: HostConfig { hostname: "0.0.0.0".to_owned(), port: Some(port) },
+    };
+
+    let state = Arc::new(Mutex::new(ApplicationServiceState::new(create_opts).await));
+
+    let health_state = state.clone();
+    let health = warp::path("health")
+        .and(warp::any().map(move || health_state.clone()))
+        .map(|_: Arc<Mutex<ApplicationServiceState>>| warp::reply::json(&"OK"));
+
+    let query_state = state.clone();
+    let server_token_query = registration.server_token.clone();
+
+    let mut base_filter = warp::any().boxed();
+    for seg in &base_segments {
+        let seg_clone = seg.clone();
+        base_filter = base_filter.and(warp::path(seg_clone)).boxed();
+    }
+
+    let query_user = base_filter.clone()
+        .and(warp::path("_matrix"))
+        .and(warp::path("app"))
+        .and(warp::path("v1"))
+        .and(warp::path("users"))
+        .and(warp::path::param::<String>())
+        .and(warp::query::<std::collections::HashMap<String, String>>())
+        .and(warp::path::end())
+        .and(warp::any().map(move || query_state.clone()))
+        .and(warp::any().map(move || server_token_query.clone()))
+        .and_then(
+            |user: String,
+             query: std::collections::HashMap<String, String>,
+             state: Arc<Mutex<ApplicationServiceState>>,
+             server_token: String| async move {
+                use crate::application_service::http_methods::query_user_id_handler;
+                use crate::application_service::http_methods::QueryUserIdResponse;
+                use ruma::OwnedUserId;
+                use warp::http::StatusCode;
+
+                if query.get("access_token") != Some(&server_token) {
+                    return Ok::<_, Rejection>(warp::reply::with_status(
+                        warp::reply::json(&serde_json::json!({})),
+                        StatusCode::UNAUTHORIZED,
+                    ));
+                }
+
+                let user_id: OwnedUserId = user.parse().map_err(|_| warp::reject())?;
+                let req = QueryUserIdRequest::new(user_id);
+                match query_user_id_handler(state, req).await {
+                    Ok(QueryUserIdResponse { exists }) => {
+                        Ok::<_, Rejection>(warp::reply::with_status(
+                            warp::reply::json(&serde_json::json!({ "exists": exists })),
+                            StatusCode::OK,
+                        ))
+                    }
+                    Err(err) => Err(err),
+                }
+            },
+        );
+
+    let bot_filter = warp::any().map(move || bot.clone());
+    let state_filter = warp::any().map(move || state.clone());
+
+    let server_token = registration.server_token.clone();
+    let transactions_route = base_filter
+        .clone()
+        .and(warp::path("_matrix"))
+        .and(warp::path("app"))
+        .and(warp::path("v1"))
+        .and(warp::path("transactions"))
+        .and(warp::path::param::<String>())
+        .and(warp::post())
+        .and(warp::query::<std::collections::HashMap<String, String>>())
+        .and(warp::body::json())
+        .and(state_filter)
+        .and(bot_filter.clone())
+        .and(warp::any().map(move || server_token.clone()))
+        .and_then(transactions_handler);
+
+    let routes = health.or(query_user).or(transactions_route);
+
+    let addr = ([0, 0, 0, 0], port);
+    warp::serve(routes).run(addr).await;
 }
