@@ -106,13 +106,19 @@ async fn transactions_handler(
     txn_id: String,
     query: std::collections::HashMap<String, String>,
     req: TransactionRequest,
+    authorization: Option<String>,
     state: Arc<Mutex<ApplicationServiceState>>,
     bot: Arc<MatrixBot>,
     server_token: String,
 ) -> Result<impl warp::Reply, Rejection> {
     use warp::http::StatusCode;
 
-    if query.get("access_token") != Some(&server_token) {
+    let auth_header = authorization.as_deref();
+    let token_match = match auth_header {
+        Some(h) if h == format!("Bearer {}", server_token) => true,
+        _ => query.get("access_token") == Some(&server_token),
+    };
+    if !token_match {
         return Ok(warp::reply::with_status("", StatusCode::UNAUTHORIZED));
     }
 
@@ -215,6 +221,7 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
         .and(warp::post())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::body::json())
+        .and(warp::header::optional::<String>("authorization"))
         .and(state_filter)
         .and(bot_filter.clone())
         .and(warp::any().map(move || server_token.clone()))
