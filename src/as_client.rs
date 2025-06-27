@@ -3,6 +3,7 @@ use serde_json::json;
 use crate::config::config::Config;
 use url::Url;
 use uuid::Uuid;
+use urlencoding::encode;
 
 pub struct MatrixAsClient {
     homeserver: String,
@@ -28,6 +29,39 @@ impl MatrixAsClient {
         }
     }
 
+    pub async fn set_presence(&self, presence: &str, status_msg: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/presence/{}/status",
+            self.homeserver, self.user_id
+        );
+        let content = json!({
+            "presence": presence,
+            "status_msg": status_msg,
+        });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
+    pub async fn accept_invite(&self, room_id: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/state/m.room.member/{}",
+            self.homeserver, room_id, encode(&self.user_id)
+        );
+        let content = json!({ "membership": "join" });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
     fn auth_query(&self) -> Vec<(&str, String)> {
         vec![
             ("user_id", self.user_id.clone()),
@@ -39,47 +73,6 @@ impl MatrixAsClient {
         &self.user_id
     }
 
-    pub async fn user_exists(&self) -> Option<bool> {
-        let url = format!(
-            "{}/_matrix/client/v3/profile/{}",
-            self.homeserver, self.user_id
-        );
-        match self
-            .http
-            .get(url)
-            .query(&self.auth_query())
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.status() {
-                StatusCode::OK => Some(true),
-                StatusCode::NOT_FOUND => Some(false),
-                _ => None,
-            },
-            Err(_) => None,
-        }
-    }
-
-    pub async fn register_user(&self) {
-        let url = format!("{}/_matrix/client/v3/register", self.homeserver);
-        let localpart = self
-            .user_id
-            .split(':')
-            .next()
-            .unwrap()
-            .trim_start_matches('@');
-        let content = json!({
-            "type": "m.login.application_service",
-            "username": localpart,
-        });
-        let _ = self
-            .http
-            .post(url)
-            .query(&[("access_token", self.as_token.clone())])
-            .json(&content)
-            .send()
-            .await;
-    }
 
     pub async fn send_text(&self, room_id: &str, body: &str) {
         let txn = Uuid::new_v4().to_string();

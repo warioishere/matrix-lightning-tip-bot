@@ -35,15 +35,10 @@ impl MatrixBot {
     }
 
     pub async fn init(&self) {
-        match self.as_client.user_exists().await {
-            Some(true) => {}
-            Some(false) => {
-                self.as_client.register_user().await;
-            }
-            None => {
-                log::warn!("Failed to check bot user profile");
-            }
-        }
+        self
+            .as_client
+            .set_presence("online", "Ready to help")
+            .await;
         log::info!("MatrixBot initialized");
     }
 
@@ -76,7 +71,23 @@ impl MatrixBot {
                         }
                     }
                 }
-                Some("m.room.member") => {}
+                Some("m.room.member") => {
+                    if ev
+                        .get("content")
+                        .and_then(|c| c.get("membership"))
+                        .and_then(|m| m.as_str())
+                        == Some("invite")
+                    {
+                        if let (Some(room_id), Some(state_key)) = (
+                            ev.get("room_id").and_then(|r| r.as_str()),
+                            ev.get("state_key").and_then(|s| s.as_str()),
+                        ) {
+                            if state_key == self.as_client.user_id() {
+                                self.as_client.accept_invite(room_id).await;
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
