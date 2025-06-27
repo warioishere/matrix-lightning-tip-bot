@@ -106,6 +106,9 @@ impl MatrixBot {
                                     self.send_message(room_id, &text).await;
                                 }
                             }
+                            if let Some(image) = reply.image {
+                                self.send_image(room_id, "qr.png", image).await;
+                            }
                         }
                         Err(err) => {
                             log::warn!("Error processing command: {:?}", err);
@@ -208,6 +211,16 @@ impl MatrixBot {
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_formatted(room_id, body, &html).await;
+        }
+    }
+
+    async fn send_image(&self, room_id: &str, name: &str, data: Vec<u8>) {
+        if let Some(mxc) = self
+            .as_client
+            .upload(&data, "image/png", name)
+            .await
+        {
+            self.as_client.send_image(room_id, name, &mxc).await;
         }
     }
 

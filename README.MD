@@ -17,7 +17,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`
 * **!balance** - Check your balance: `!balance`
 * **!send** - Send funds to a user: `!send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]`
-* **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`
+* **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]` (includes a QR code)
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
 * **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`

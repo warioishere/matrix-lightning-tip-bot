@@ -111,6 +111,45 @@ impl MatrixAsClient {
             .await;
     }
 
+    pub async fn upload(&self, data: &[u8], content_type: &str, filename: &str) -> Option<String> {
+        let url = format!("{}/_matrix/media/v3/upload", self.homeserver);
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .query(&[("filename", filename.to_owned())])
+            .header("Content-Type", content_type)
+            .body(data.to_owned())
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?
+            .get("content_uri")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned())
+    }
+
+    pub async fn send_image(&self, room_id: &str, filename: &str, mxc_url: &str) {
+        let txn = Uuid::new_v4().to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
+            self.homeserver, room_id, txn
+        );
+        let content = json!({
+            "msgtype": "m.image",
+            "body": filename,
+            "url": mxc_url,
+        });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
     pub async fn send_raw(&self, room_id: &str, event_type: &str, content: serde_json::Value) {
         let txn = Uuid::new_v4().to_string();
         let url = format!(
