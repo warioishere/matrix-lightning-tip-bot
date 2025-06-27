@@ -1,10 +1,10 @@
 use matrix_sdk_crypto::OlmMachine;
 use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, RoomId};
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use tempfile::TempDir;
 use tokio::fs;
 use crate::data_layer::data_layer::DataLayer;
-use crate::Config;
+use crate::config::config::Config;
 
 pub struct EncryptionHelper {
     machine: OlmMachine,

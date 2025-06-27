@@ -12,7 +12,7 @@ mod data_layer;
 mod application_service;
 
 use log::LevelFilter;
-use crate::config::config::{config_from_cmd, Config};
+use crate::config::config::config_from_cmd;
 use crate::data_layer::data_layer::DataLayer;
 
 use crate::lnbits_client::lnbits_client::LNBitsClient;
@@ -20,7 +20,7 @@ use crate::matrix_bot::MatrixBot;
 
 use simple_logger::SimpleLogger;
 use std::str::FromStr;
-use simple_error::{SimpleError, try_with};
+use simple_error::SimpleError;
 use crate::application_service::application_service::run_server;
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ async fn main() -> Result<(), SimpleError>  {
 
     let ln_client = LNBitsClient::new(&config);
 
-    let matrix_bot = Arc::new(MatrixBot::new(data_layer, ln_client, &config).await);
+    let matrix_bot: Arc<MatrixBot> = Arc::new(MatrixBot::new(data_layer, ln_client, &config).await);
 
     matrix_bot.init().await;
     matrix_bot.sync().await.map_err(|e| SimpleError::new(format!("{:?}", e)))?;

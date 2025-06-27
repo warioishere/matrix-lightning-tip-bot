@@ -1,4 +1,6 @@
-use crate::{Config, DataLayer, LNBitsClient};
+use crate::config::config::Config;
+use crate::data_layer::data_layer::DataLayer;
+use crate::lnbits_client::lnbits_client::LNBitsClient;
 mod commands;
 mod business_logic;
 mod utils;
@@ -8,7 +10,7 @@ use self::commands::Command;
 use crate::as_client::MatrixAsClient;
 use crate::encryption::EncryptionHelper;
 use serde_json::Value;
-use simple_error::{SimpleError, bail, try_with};
+use simple_error::{SimpleError, bail};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
     room_encryption: Mutex<HashMap<String, bool>>,

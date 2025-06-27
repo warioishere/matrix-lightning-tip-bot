@@ -6,7 +6,7 @@ pub mod data_layer {
     use diesel::prelude::*;
     use diesel::SelectableHelper;
 
-    use crate::Config;
+    use crate::config::config::Config;
     pub  use crate::data_layer::models::{
         LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
         LnAddress, NewLnAddress, MatrixStore, NewMatrixStore,

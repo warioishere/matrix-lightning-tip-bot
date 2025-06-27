@@ -1,6 +1,6 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use crate::Config;
+use crate::config::config::Config;
 
 pub struct MatrixAsClient {
     homeserver: String,
