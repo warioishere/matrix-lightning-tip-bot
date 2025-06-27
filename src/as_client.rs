@@ -1,6 +1,5 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use crate::config::config::Config;
 
 pub struct MatrixAsClient {
@@ -14,37 +13,10 @@ impl MatrixAsClient {
     pub fn new(config: &Config) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
-            user_id: format!(
-                "@{}:{}",
-                config.registration.sender_localpart,
-                url::Url::parse(&config.matrix_server)
-                    .unwrap()
-                    .host_str()
-                    .unwrap()
-            ),
-            as_token: config.registration.app_token.clone(),
-            http: Client::new(),
-        }
-    }
-
-    fn auth_query(&self) -> Vec<(&str, String)> {
-        vec![
-            ("user_id", self.user_id.clone()),
-            ("access_token", self.as_token.clone()),
-        ]
-    }
-
-    pub fn user_id(&self) -> &str {
-        &self.user_id
-    }
-
-    pub async fn ensure_joined(&self, room_id: &str) {
-        let encoded_user = utf8_percent_encode(&self.user_id, NON_ALPHANUMERIC).to_string();
-        let url = format!(
-            "{}/_matrix/client/v3/rooms/{}/state/m.room.member/{}",
-            self.homeserver, room_id, encoded_user
+        let _ = self
+            .post(url)
+            .await;
         );
-        let joined = match self
             .http
             .get(&url)
             .query(&self.auth_query())
@@ -125,30 +97,6 @@ impl MatrixAsClient {
         }
     }
 
-    pub async fn user_exists(&self, user_id: &str) -> Option<bool> {
-        let url = format!(
-            "{}/_matrix/client/v3/profile/{}",
-            self.homeserver, user_id
-        );
-        match self
-            .http
-            .get(url)
-            .query(&[("user_id", self.user_id.clone()), ("access_token", self.as_token.clone())])
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.status() {
-                StatusCode::OK => Some(true),
-                StatusCode::NOT_FOUND => Some(false),
-                _ => None,
-            },
-            Err(_) => None,
-        }
-    }
-
-    pub async fn provision_user(&self, room_id: &str) {
-        self.send_text(room_id, "provision").await;
-    }
 
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> Option<serde_json::Value> {
         let url = format!(

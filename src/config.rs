@@ -13,7 +13,6 @@ pub mod config {
         pub database_url: String,
         pub store_path: String,
         pub avatar_path: Option<String>,
-        pub provision_room: Option<String>,
         pub debug_level: String,
         pub allowed_matrix_servers: Option<Vec<String>>,
     }
@@ -27,7 +26,6 @@ pub mod config {
                    database_url: &str,
                    store_path: &str,
                    avatar_path: Option<String>,
-                   provision_room: Option<String>,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
             Config {
@@ -39,7 +37,6 @@ pub mod config {
                 database_url: database_url.to_string(),
                 store_path: store_path.to_string(),
                 avatar_path,
-                provision_room,
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
             }
@@ -90,10 +87,6 @@ pub mod config {
                 .long("avatar-path")
                 .required(false)
                 .help("mxc:// URL to set as the bot's avatar"))
-            .arg(Arg::new("provision-room")
-                .long("provision-room")
-                .required(false)
-                .help("Room ID used to provision the AS user if it does not exist"))
             .arg(Arg::new("debug-level")
                 .long("debug-level")
                 .default_value("Info")
@@ -137,10 +130,6 @@ pub mod config {
             .get_one::<String>("avatar-path")
             .map(|s| s.to_string());
 
-        let provision_room = matches
-            .get_one::<String>("provision-room")
-            .map(|s| s.to_string());
-
         let debug_level = matches.get_one::<String>("debug-level").unwrap();
 
         let allowed_matrix_servers = matches
@@ -155,7 +144,6 @@ pub mod config {
                     database_url,
                     store_path.as_str(),
                     avatar_path,
-                    provision_room,
                     debug_level,
                     allowed_matrix_servers)
     }
