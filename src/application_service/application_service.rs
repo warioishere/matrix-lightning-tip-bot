@@ -181,19 +181,24 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
 
     let state = Arc::new(Mutex::new(ApplicationServiceState::new(create_opts).await));
 
-    let health_state = state.clone();
-    let health = warp::path("health")
-        .and(warp::any().map(move || health_state.clone()))
-        .map(|_: Arc<Mutex<ApplicationServiceState>>| warp::reply::json(&"OK"));
-
-    let query_state = state.clone();
-    let server_token_query = registration.server_token.clone();
-
     let mut base_filter = warp::any().boxed();
     for seg in &base_segments {
         let seg_clone = seg.clone();
         base_filter = base_filter.and(warp::path(seg_clone)).boxed();
     }
+
+    let health_state = state.clone();
+    let health = base_filter.clone()
+        .and(warp::path("_matrix"))
+        .and(warp::path("app"))
+        .and(warp::path("v1"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(warp::any().map(move || health_state.clone()))
+        .map(|_: Arc<Mutex<ApplicationServiceState>>| warp::reply::json(&"OK"));
+
+    let query_state = state.clone();
+    let server_token_query = registration.server_token.clone();
 
     let query_user = base_filter.clone()
         .and(warp::path("_matrix"))
