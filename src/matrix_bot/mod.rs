@@ -11,6 +11,14 @@ use serde_json::Value;
 use simple_error::{SimpleError, bail, try_with};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
+    room_encryption: Mutex<HashMap<String, bool>>,
+        MatrixBot {
+            business_logic_context: ctx,
+            as_client,
+            encryption,
+            room_encryption: Mutex::new(HashMap::new()),
+        }
+use tokio::sync::Mutex;
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
@@ -60,8 +68,8 @@ impl MatrixBot {
                             let body = content.get("body").and_then(|b| b.as_str()).unwrap_or("");
                             let reply_event = content
                                 .get("m.relates_to")
-                                .and_then(|r| r.get("m.in_reply_to"))
-                                .and_then(|r| r.get("event_id"))
+                            self.send_message(room_id, &text).await;
+                        let _ = self.send_message(room_id, "I encountered an error").await;
                                 .and_then(|id| id.as_str());
                             self.handle_message(room_id, sender, body, reply_event).await;
                         }
@@ -127,6 +135,31 @@ impl MatrixBot {
         } else if msg.starts_with("!balance") {
             commands::balance(sender)
         } else if msg.starts_with("!send") {
+
+    async fn room_is_encrypted(&self, room_id: &str) -> bool {
+        {
+            let cache = self.room_encryption.lock().await;
+            if let Some(val) = cache.get(room_id) {
+                return *val;
+            }
+        }
+        let encrypted = match self.as_client.room_is_encrypted(room_id).await {
+            Some(b) => b,
+            None => false,
+        };
+        let mut cache = self.room_encryption.lock().await;
+        cache.insert(room_id.to_string(), encrypted);
+        encrypted
+    }
+
+    async fn send_message(&self, room_id: &str, body: &str) {
+        if self.room_is_encrypted(room_id).await {
+            let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
+            self.as_client.send_raw(room_id, &event_type, content).await;
+        } else {
+            self.as_client.send_text(room_id, body).await;
+        }
+    }
             commands::send(sender, msg)
         } else if msg.starts_with("!invoice") {
             commands::invoice(sender, msg)
