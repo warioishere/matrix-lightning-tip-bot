@@ -16,6 +16,7 @@ argfile = "0.2.1"
 wild = "2.2.1"
 url = "2.5.2"
 matrix-sdk-crypto = "0.12.0"
+matrix-sdk-sqlite = { version = "0.12.0", features = ["crypto-store"] }
 tokio = { version = "1.40.0", features = ["full"] }
 simple_logger = "5.0.0"
 log = "0.4.22"
