@@ -100,4 +100,66 @@ impl EncryptionHelper {
             serde_json::to_value(encrypted).expect("serialize encrypted"),
         )
     }
+
+    pub async fn receive_to_device(&self, events: Vec<serde_json::Value>) {
+        use matrix_sdk_crypto::{EncryptionSyncChanges};
+        use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
+        use std::collections::BTreeMap;
+
+        let raw_events: Vec<Raw<AnyToDeviceEvent>> = events
+            .into_iter()
+            .filter_map(|ev| serde_json::value::to_raw_value(&ev).ok().map(Raw::from_json))
+            .collect();
+
+        let changes = EncryptionSyncChanges {
+            to_device_events: raw_events,
+            changed_devices: &DeviceLists::new(),
+            one_time_keys_counts: &BTreeMap::<OneTimeKeyAlgorithm, UInt>::new(),
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        };
+
+        if !changes.to_device_events.is_empty() {
+            let _ = self.machine.receive_sync_changes(changes).await;
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+    }
+
+    pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
+        use matrix_sdk_crypto::{DecryptionSettings, TrustRequirement};
+        use matrix_sdk_crypto::types::events::room::encrypted::EncryptedEvent;
+        use ruma::{serde::Raw, events::{AnyMessageLikeEvent, MessageLikeEvent, room::message::MessageType}};
+
+        let raw: Raw<EncryptedEvent> = serde_json::value::to_raw_value(event).ok().map(Raw::from_json)?;
+        let room_id: OwnedRoomId = room_id.parse().ok()?;
+        let settings = DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let decrypted = self
+            .machine
+            .decrypt_room_event(&raw, &room_id, &settings)
+            .await
+            .ok()?;
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+
+        let event = decrypted.event.deserialize().ok()?;
+        if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(orig)) = event {
+            if let MessageType::Text(c) = orig.content.msgtype {
+                return Some(c.body);
+            }
+        }
+        None
+    }
 }

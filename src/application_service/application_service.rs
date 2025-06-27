@@ -156,7 +156,7 @@ async fn transactions_handler(
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
-    bot.clone().handle_transaction_events(req.events).await;
+    bot.clone().handle_transaction_events(req.events, req.to_device).await;
     Ok(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({})),
         StatusCode::OK,

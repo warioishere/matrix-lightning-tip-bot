@@ -52,7 +52,8 @@ impl MatrixBot {
         Ok(())
     }
 
-    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>) {
+    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, to_device: Vec<Value>) {
+        self.encryption.receive_to_device(to_device).await;
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
@@ -71,6 +72,19 @@ impl MatrixBot {
                                 .and_then(|r| r.get("event_id"))
                                 .and_then(|id| id.as_str());
                             self.clone().handle_message(room_id, sender, body, reply_event).await;
+                        }
+                    }
+                }
+                Some("m.room.encrypted") => {
+                    if let (Some(room_id), Some(sender)) = (
+                        ev.get("room_id").and_then(|r| r.as_str()),
+                        ev.get("sender").and_then(|s| s.as_str()),
+                    ) {
+                        if sender == self.as_client.user_id() {
+                            continue;
+                        }
+                        if let Some(body) = self.encryption.decrypt_event(room_id, &ev).await {
+                            self.clone().handle_message(room_id, sender, &body, None).await;
                         }
                     }
                 }
