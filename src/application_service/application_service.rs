@@ -188,11 +188,13 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
 
     let query_state = state.clone();
 
+    // GET /_matrix/app/v1/users/{userId}
     let query_user = warp::path("_matrix")
         .and(warp::path("app"))
         .and(warp::path("v1"))
         .and(warp::path("users"))
         .and(warp::path::param::<String>())
+        .and(warp::get())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::path::end())
         .and(warp::any().map(move || query_state.clone()))

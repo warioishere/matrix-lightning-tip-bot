@@ -160,7 +160,7 @@ pushing events there. Once the registration file is listed under
 `/sync`; all events are delivered via these transactions. The bot verifies that
 transactions include the correct `access_token` so only your homeserver can
 deliver events. Queries to
-`/_matrix/app/v1/users/{userId}` are publicly accessible and simply indicate
+`GET /_matrix/app/v1/users/{userId}` is publicly accessible and simply indicates
 whether that user is registered.
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
 format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.to_device`, and other optional fields.
