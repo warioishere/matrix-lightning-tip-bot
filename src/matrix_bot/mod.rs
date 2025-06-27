@@ -26,7 +26,7 @@ pub struct MatrixBot {
 impl MatrixBot {
     pub async fn new(data_layer: DataLayer, lnbits_client: LNBitsClient, config: &Config) -> Self {
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
-        let as_client = MatrixAsClient::new(config);
+        let as_client = MatrixAsClient::new(config, data_layer.clone());
         let encryption = EncryptionHelper::new(&data_layer, config).await;
         MatrixBot {
             business_logic_context: ctx,

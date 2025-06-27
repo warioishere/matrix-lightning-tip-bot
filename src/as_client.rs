@@ -1,6 +1,10 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use crate::config::config::Config;
+use crate::data_layer::data_layer::DataLayer;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 use urlencoding::encode;
@@ -11,10 +15,12 @@ pub struct MatrixAsClient {
     user_id: String,
     as_token: String,
     http: Client,
+    dm_rooms: Arc<Mutex<HashMap<String, String>>>,
+    data_layer: DataLayer,
 }
 
 impl MatrixAsClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, data_layer: DataLayer) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
             user_id: format!(
@@ -27,6 +33,8 @@ impl MatrixAsClient {
             ),
             as_token: config.registration.app_token.clone(),
             http: Client::new(),
+            dm_rooms: Arc::new(Mutex::new(HashMap::new())),
+            data_layer,
         }
     }
 
@@ -223,12 +231,26 @@ impl MatrixAsClient {
     }
 
     async fn create_dm_room(&self, user_id: &str) -> Option<String> {
+        {
+            let map = self.dm_rooms.lock().await;
+            if let Some(room) = map.get(user_id) {
+                return Some(room.clone());
+            }
+        }
+
+        if let Some(room) = self.data_layer.dm_room_for_user(user_id) {
+            let mut map = self.dm_rooms.lock().await;
+            map.insert(user_id.to_owned(), room.clone());
+            return Some(room);
+        }
+
         let url = format!("{}/_matrix/client/v3/createRoom", self.homeserver);
         let content = json!({
             "invite": [user_id],
             "is_direct": true
         });
-        self.http
+        let room_id = self
+            .http
             .post(url)
             .query(&self.auth_query())
             .json(&content)
@@ -240,7 +262,15 @@ impl MatrixAsClient {
             .ok()?
             .get("room_id")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_owned())
+            .map(|s| s.to_owned());
+
+        if let Some(ref id) = room_id {
+            let mut map = self.dm_rooms.lock().await;
+            map.insert(user_id.to_owned(), id.clone());
+            self.data_layer.save_dm_room(user_id, id);
+        }
+
+        room_id
     }
 
     pub async fn send_dm(&self, user_id: &str, body: &str) {
