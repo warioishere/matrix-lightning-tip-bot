@@ -6,7 +6,7 @@ pub mod lnbits_client {
     use std::time::Duration;
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
-    use crate::Config;
+    use crate::config::config::Config;
 
     #[derive(Debug, Deserialize, Serialize)]
     pub struct InvoiceParams {

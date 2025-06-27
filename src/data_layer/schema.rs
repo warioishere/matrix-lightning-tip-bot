@@ -11,10 +11,18 @@ diesel::table! {
 
 diesel::table! {
     ln_addresses (id) {
-        id -> Integer,
+        id -> Nullable<Integer>,
         matrix_id -> Text,
         ln_address -> Text,
         lnurl -> Text,
         date_created -> Text,
+    }
+}
+
+diesel::table! {
+    matrix_store (id) {
+        id -> Nullable<Integer>,
+        state -> Binary,
+        crypto -> Binary,
     }
 }

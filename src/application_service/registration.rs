@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
-use rand::{distributions::Alphanumeric, Rng};
 use std::{fs, io};
 use std::path::Path;
 use serde_yaml;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Registration {
     #[serde(rename = "id")]
     pub id: String,
@@ -40,8 +39,8 @@ pub struct Registration {
     pub msc3202: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Namespaces {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Namespaces {
     #[serde(rename = "users", skip_serializing_if = "Option::is_none")]
     pub user_ids: Option<NamespaceList>,
 
@@ -52,8 +51,8 @@ struct Namespaces {
     pub room_ids: Option<NamespaceList>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Namespace {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Namespace {
     #[serde(rename = "regex")]
     pub regex: String,
 
@@ -62,41 +61,10 @@ struct Namespace {
 }
 
 // Define NamespaceList as a vector of Namespace structs
-type NamespaceList = Vec<Namespace>;
+pub type NamespaceList = Vec<Namespace>;
 
 
 impl Registration {
-    fn create_registration() -> Self {
-        let app_token: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
-
-        let server_token: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
-
-        Registration {
-            id: String::new(),
-            url: String::new(),
-            app_token,
-            server_token,
-            sender_localpart: String::new(),
-            rate_limited: None,
-            namespaces: Namespaces {
-                user_ids: None,
-                room_aliases: None,
-                room_ids: None,
-            },
-            protocols: Vec::new(),
-            soru_ephemeral_events: None,
-            ephemeral_events: None,
-            msc3202: None,
-        }
-    }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let data = serde_yaml::to_string(self)
@@ -105,7 +73,16 @@ impl Registration {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub fn load(path: &Path) -> io::Result<Self> {
+        let data = fs::read_to_string(path)?;
+        let reg: Registration = serde_yaml::from_str(&data)
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        Ok(reg)
+    }
+
     // Get the YAML representation as a String
+    #[allow(dead_code)]
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
     }
