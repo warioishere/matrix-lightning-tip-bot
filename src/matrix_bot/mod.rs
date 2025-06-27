@@ -35,7 +35,7 @@ impl MatrixBot {
     }
 
     pub async fn init(&self) {
-        // Application Service users are provisioned automatically on first use.
+        log::info!("MatrixBot initialized");
     }
 
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -67,18 +67,7 @@ impl MatrixBot {
                         }
                     }
                 }
-                Some("m.room.member") => {
-                    if ev
-                        .get("content")
-                        .and_then(|c| c.get("membership"))
-                        .and_then(|m| m.as_str())
-                        == Some("invite")
-                    {
-                        if let Some(room_id) = ev.get("room_id").and_then(|r| r.as_str()) {
-                            self.as_client.join_room(room_id).await;
-                        }
-                    }
-                }
+                Some("m.room.member") => {}
                 _ => {}
             }
         }
