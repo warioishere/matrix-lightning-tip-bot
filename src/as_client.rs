@@ -1,6 +1,9 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use crate::config::config::Config;
+use url::Url;
+use uuid::Uuid;
+use urlencoding::encode;
 
 pub struct MatrixAsClient {
     homeserver: String,
@@ -13,47 +16,74 @@ impl MatrixAsClient {
     pub fn new(config: &Config) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
-        let _ = self
-            .post(url)
-            .await;
-        );
-            .http
-            .get(&url)
-            .query(&self.auth_query())
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status() == StatusCode::OK => {
-                match resp.json::<serde_json::Value>().await {
-                    Ok(val) => val.get("membership").and_then(|m| m.as_str()) == Some("join"),
-                    Err(_) => false,
-                }
-            }
-            _ => false,
-        };
-
-        if !joined {
-            self.join_room(room_id).await;
+            user_id: format!(
+                "@{}:{}",
+                config.registration.sender_localpart,
+                Url::parse(&config.matrix_server)
+                    .unwrap()
+                    .host_str()
+                    .unwrap(),
+            ),
+            as_token: config.registration.app_token.clone(),
+            http: Client::new(),
         }
     }
 
-    pub async fn join_room(&self, room_id: &str) {
-        let url = format!("{}/_matrix/client/v3/rooms/{}/join", self.homeserver, room_id);
-        let _ = self.http.post(url)
+    pub async fn set_presence(&self, presence: &str, status_msg: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/presence/{}/status",
+            self.homeserver, self.user_id
+        );
+        let content = json!({
+            "presence": presence,
+            "status_msg": status_msg,
+        });
+        let _ = self
+            .http
+            .put(url)
             .query(&self.auth_query())
+            .json(&content)
             .send()
             .await;
     }
 
+    pub async fn accept_invite(&self, room_id: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/state/m.room.member/{}",
+            self.homeserver, room_id, encode(&self.user_id)
+        );
+        let content = json!({ "membership": "join" });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
+    fn auth_query(&self) -> Vec<(&str, String)> {
+        vec![
+            ("user_id", self.user_id.clone()),
+            ("access_token", self.as_token.clone()),
+        ]
+    }
+
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
+
     pub async fn send_text(&self, room_id: &str, body: &str) {
-        self.ensure_joined(room_id).await;
-        let txn = format!("{}", uuid::Uuid::new_v4());
+        let txn = Uuid::new_v4().to_string();
         let url = format!(
             "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
             self.homeserver, room_id, txn
         );
         let content = json!({"msgtype": "m.text", "body": body});
-        let _ = self.http.put(url)
+        let _ = self
+            .http
+            .put(url)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -61,8 +91,7 @@ impl MatrixAsClient {
     }
 
     pub async fn send_raw(&self, room_id: &str, event_type: &str, content: serde_json::Value) {
-        self.ensure_joined(room_id).await;
-        let txn = uuid::Uuid::new_v4().to_string();
+        let txn = Uuid::new_v4().to_string();
         let url = format!(
             "{}/_matrix/client/v3/rooms/{}/send/{}/{}",
             self.homeserver, room_id, event_type, txn
@@ -96,7 +125,6 @@ impl MatrixAsClient {
             Err(_) => None,
         }
     }
-
 
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> Option<serde_json::Value> {
         let url = format!(

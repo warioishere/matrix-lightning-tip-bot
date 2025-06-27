@@ -106,36 +106,67 @@ async fn transactions_handler(
     txn_id: String,
     query: std::collections::HashMap<String, String>,
     req: TransactionRequest,
+    authorization: Option<String>,
     state: Arc<Mutex<ApplicationServiceState>>,
     bot: Arc<MatrixBot>,
     server_token: String,
 ) -> Result<impl warp::Reply, Rejection> {
     use warp::http::StatusCode;
 
-    if query.get("access_token") != Some(&server_token) {
-        return Ok(warp::reply::with_status("", StatusCode::UNAUTHORIZED));
+    let auth_header = authorization.as_deref();
+    if let Some(header) = auth_header {
+        if header != format!("Bearer {}", server_token) {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "errcode": "M_FORBIDDEN",
+                    "error": "Invalid application service token",
+                })),
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        if let Some(q) = query.get("access_token") {
+            if q != &server_token {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({
+                        "errcode": "M_FORBIDDEN",
+                        "error": "Invalid application service token",
+                    })),
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+        }
+    } else if query.get("access_token") != Some(&server_token) {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "errcode": "M_FORBIDDEN",
+                "error": "Invalid application service token",
+            })),
+            StatusCode::FORBIDDEN,
+        ));
     }
 
     {
         let mut state_guard = state.lock().unwrap();
         if state_guard.txn_idc_cache.is_processed(&txn_id) {
-            return Ok(warp::reply::with_status("", StatusCode::OK));
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({})),
+                StatusCode::OK,
+            ));
         }
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
     bot.handle_transaction_events(req.events).await;
-    Ok(warp::reply::with_status("", StatusCode::OK))
+    Ok(warp::reply::with_status(
+        warp::reply::json(&serde_json::json!({})),
+        StatusCode::OK,
+    ))
 }
 
 pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
-    // Derive host, port and base path from the registration URL
+    // Derive host and port from the registration URL
     let url = url::Url::parse(&registration.url).expect("Invalid registration URL");
     let port = url.port().unwrap_or(9000);
-    let base_segments: Vec<String> = url
-        .path_segments()
-        .map(|s| s.filter(|seg| !seg.is_empty()).map(|seg| seg.to_string()).collect())
-        .unwrap_or_default();
 
     let create_opts = CreateOpts {
         registration: registration.clone(),
@@ -147,21 +178,17 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
     let state = Arc::new(Mutex::new(ApplicationServiceState::new(create_opts).await));
 
     let health_state = state.clone();
-    let health = warp::path("health")
+    let health = warp::path("_matrix")
+        .and(warp::path("app"))
+        .and(warp::path("v1"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
         .and(warp::any().map(move || health_state.clone()))
         .map(|_: Arc<Mutex<ApplicationServiceState>>| warp::reply::json(&"OK"));
 
     let query_state = state.clone();
-    let server_token_query = registration.server_token.clone();
 
-    let mut base_filter = warp::any().boxed();
-    for seg in &base_segments {
-        let seg_clone = seg.clone();
-        base_filter = base_filter.and(warp::path(seg_clone)).boxed();
-    }
-
-    let query_user = base_filter.clone()
-        .and(warp::path("_matrix"))
+    let query_user = warp::path("_matrix")
         .and(warp::path("app"))
         .and(warp::path("v1"))
         .and(warp::path("users"))
@@ -169,23 +196,14 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::path::end())
         .and(warp::any().map(move || query_state.clone()))
-        .and(warp::any().map(move || server_token_query.clone()))
         .and_then(
             |user: String,
-             query: std::collections::HashMap<String, String>,
-             state: Arc<Mutex<ApplicationServiceState>>,
-             server_token: String| async move {
+             _query: std::collections::HashMap<String, String>,
+             state: Arc<Mutex<ApplicationServiceState>>| async move {
                 use crate::application_service::http_methods::query_user_id_handler;
                 use crate::application_service::http_methods::QueryUserIdResponse;
                 use ruma::OwnedUserId;
                 use warp::http::StatusCode;
-
-                if query.get("access_token") != Some(&server_token) {
-                    return Ok::<_, Rejection>(warp::reply::with_status(
-                        warp::reply::json(&serde_json::json!({})),
-                        StatusCode::UNAUTHORIZED,
-                    ));
-                }
 
                 let user_id: OwnedUserId = user.parse().map_err(|_| warp::reject())?;
                 let req = QueryUserIdRequest::new(user_id);
@@ -205,9 +223,7 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
     let state_filter = warp::any().map(move || state.clone());
 
     let server_token = registration.server_token.clone();
-    let transactions_route = base_filter
-        .clone()
-        .and(warp::path("_matrix"))
+    let transactions_route = warp::path("_matrix")
         .and(warp::path("app"))
         .and(warp::path("v1"))
         .and(warp::path("transactions"))
@@ -215,6 +231,7 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
         .and(warp::post())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::body::json())
+        .and(warp::header::optional::<String>("authorization"))
         .and(state_filter)
         .and(bot_filter.clone())
         .and(warp::any().map(move || server_token.clone()))
