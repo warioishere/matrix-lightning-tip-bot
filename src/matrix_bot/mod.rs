@@ -13,14 +13,6 @@ use serde_json::Value;
 use simple_error::{SimpleError, bail};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
-    room_encryption: Mutex<HashMap<String, bool>>,
-        MatrixBot {
-            business_logic_context: ctx,
-            as_client,
-            encryption,
-            room_encryption: Mutex::new(HashMap::new()),
-        }
-use tokio::sync::Mutex;
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
@@ -48,7 +40,6 @@ impl MatrixBot {
 
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(avatar) = &self.business_logic_context.config().avatar_path {
-            // avatar URL already in registration; skip uploading
             log::info!("Using avatar {}", avatar);
         }
         Ok(())
@@ -70,8 +61,7 @@ impl MatrixBot {
                             let body = content.get("body").and_then(|b| b.as_str()).unwrap_or("");
                             let reply_event = content
                                 .get("m.relates_to")
-                            self.send_message(room_id, &text).await;
-                        let _ = self.send_message(room_id, "I encountered an error").await;
+                                .and_then(|r| r.get("event_id"))
                                 .and_then(|id| id.as_str());
                             self.handle_message(room_id, sender, body, reply_event).await;
                         }
@@ -97,18 +87,17 @@ impl MatrixBot {
     async fn handle_message(&self, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
         match self.extract_command(sender, room_id, body, reply_event).await {
             Ok(cmd) => {
-                if cmd.is_none() {
-                    return;
-                }
-                match self.business_logic_context.processing_command(cmd).await {
-                    Ok(reply) => {
-                        if let Some(text) = reply.text {
-                            self.send_message(room_id, &text).await;
+                if let Some(cmd) = cmd {
+                    match self.business_logic_context.processing_command(cmd).await {
+                        Ok(reply) => {
+                            if let Some(text) = reply.text {
+                                self.send_message(room_id, &text).await;
+                            }
                         }
-                    }
-                    Err(err) => {
-                        log::warn!("Error processing command: {:?}", err);
-                        let _ = self.send_message(room_id, "I encountered an error").await;
+                        Err(err) => {
+                            log::warn!("Error processing command: {:?}", err);
+                            let _ = self.send_message(room_id, "I encountered an error").await;
+                        }
                     }
                 }
             }
@@ -118,7 +107,13 @@ impl MatrixBot {
         }
     }
 
-    async fn extract_command(&self, sender: &str, room_id: &str, body: &str, reply_event: Option<&str>) -> Result<Command, SimpleError> {
+    async fn extract_command(
+        &self,
+        sender: &str,
+        room_id: &str,
+        body: &str,
+        reply_event: Option<&str>,
+    ) -> Result<Option<Command>, SimpleError> {
         let msg = body.trim();
         if msg.starts_with("!tip") {
             let replyee = if let Some(ev_id) = reply_event {
@@ -133,10 +128,39 @@ impl MatrixBot {
             } else {
                 bail!("Tip command must be a reply");
             };
-            commands::tip(sender, msg, &replyee)
+            commands::tip(sender, msg, &replyee).map(Some)
         } else if msg.starts_with("!balance") {
-            commands::balance(sender)
+            commands::balance(sender).map(Some)
         } else if msg.starts_with("!send") {
+            commands::send(sender, msg).map(Some)
+        } else if msg.starts_with("!invoice") {
+            commands::invoice(sender, msg).map(Some)
+        } else if msg.starts_with("!pay") {
+            commands::pay(sender, msg).map(Some)
+        } else if msg.starts_with("!help") {
+            commands::help().map(Some)
+        } else if msg.starts_with("!donate") {
+            commands::donate(sender, msg).map(Some)
+        } else if msg.starts_with("!party") {
+            commands::party().map(Some)
+        } else if msg.starts_with("!version") {
+            commands::version().map(Some)
+        } else if msg.starts_with("!generate-ln-address") {
+            commands::generate_ln_address(sender, msg).map(Some)
+        } else if msg.starts_with("!show-ln-addresses") {
+            commands::show_ln_addresses(sender).map(Some)
+        } else if msg.starts_with("!fiat-to-sats") {
+            commands::fiat_to_sats(sender, msg).map(Some)
+        } else if msg.starts_with("!sats-to-fiat") {
+            commands::sats_to_fiat(sender, msg).map(Some)
+        } else if msg.starts_with("!transactions") {
+            commands::transactions(sender).map(Some)
+        } else if msg.starts_with("!link-to-zeus-wallet") {
+            commands::link_to_zeus_wallet(sender).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
 
     async fn room_is_encrypted(&self, room_id: &str) -> bool {
         {
@@ -160,64 +184,10 @@ impl MatrixBot {
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_text(room_id, body).await;
-        }
-    }
-            commands::send(sender, msg)
-        } else if msg.starts_with("!invoice") {
-            commands::invoice(sender, msg)
-        } else if msg.starts_with("!pay") {
-            commands::pay(sender, msg)
-        } else if msg.starts_with("!help") {
-            commands::help()
-        } else if msg.starts_with("!donate") {
-            commands::donate(sender, msg)
-        } else if msg.starts_with("!party") {
-            commands::party()
-        } else if msg.starts_with("!version") {
-            commands::version()
-        } else if msg.starts_with("!generate-ln-address") {
-            commands::generate_ln_address(sender, msg)
-        } else if msg.starts_with("!show-ln-addresses") {
-            commands::show_ln_addresses(sender)
-        } else if msg.starts_with("!fiat-to-sats") {
-            commands::fiat_to_sats(sender, msg)
-        } else if msg.starts_with("!sats-to-fiat") {
-            commands::sats_to_fiat(sender, msg)
-        } else if msg.starts_with("!transactions") {
-            commands::transactions(sender)
-        } else if msg.starts_with("!link-to-zeus-wallet") {
-            commands::link_to_zeus_wallet(sender)
-        } else {
-            Ok(Command::None)
         }
     }
 
     fn bot_name(&self) -> String {
         self.business_logic_context.config().registration.sender_localpart.clone()
-    }
-
-    async fn room_is_encrypted(&self, room_id: &str) -> bool {
-        {
-            let cache = self.room_encryption.lock().await;
-            if let Some(val) = cache.get(room_id) {
-                return *val;
-            }
-        }
-        let encrypted = match self.as_client.room_is_encrypted(room_id).await {
-            Some(b) => b,
-            None => false,
-        };
-        let mut cache = self.room_encryption.lock().await;
-        cache.insert(room_id.to_string(), encrypted);
-        encrypted
-    }
-
-    async fn send_message(&self, room_id: &str, body: &str) {
-        if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
-            self.as_client.send_raw(room_id, &event_type, content).await;
-        } else {
-            self.as_client.send_text(room_id, body).await;
-        }
     }
 }
