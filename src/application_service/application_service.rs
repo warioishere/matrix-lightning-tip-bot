@@ -119,19 +119,31 @@ async fn transactions_handler(
         _ => query.get("access_token") == Some(&server_token),
     };
     if !token_match {
-        return Ok(warp::reply::with_status("", StatusCode::UNAUTHORIZED));
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "errcode": "M_FORBIDDEN",
+                "error": "Invalid application service token",
+            })),
+            StatusCode::FORBIDDEN,
+        ));
     }
 
     {
         let mut state_guard = state.lock().unwrap();
         if state_guard.txn_idc_cache.is_processed(&txn_id) {
-            return Ok(warp::reply::with_status("", StatusCode::OK));
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({})),
+                StatusCode::OK,
+            ));
         }
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
     bot.handle_transaction_events(req.events).await;
-    Ok(warp::reply::with_status("", StatusCode::OK))
+    Ok(warp::reply::with_status(
+        warp::reply::json(&serde_json::json!({})),
+        StatusCode::OK,
+    ))
 }
 
 pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
