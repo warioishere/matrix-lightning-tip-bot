@@ -52,8 +52,8 @@ impl MatrixBot {
         Ok(())
     }
 
-    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, to_device: Vec<Value>) {
-        self.encryption.receive_to_device(to_device).await;
+    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, send_to_device: Vec<Value>) {
+        self.encryption.receive_to_device(send_to_device).await;
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {

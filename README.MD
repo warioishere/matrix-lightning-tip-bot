@@ -163,7 +163,7 @@ deliver events. Queries to
 `GET /_matrix/app/v1/users/{userId}` is publicly accessible and simply indicates
 whether that user is registered.
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
-format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.to_device`, and other optional fields.
+format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.send_to_device`, and other optional fields.
 
 The bot checks each room for the `m.room.encryption` state event before sending a message. Messages to encrypted rooms are locally encrypted, while unencrypted rooms receive plain text.
 Example code:

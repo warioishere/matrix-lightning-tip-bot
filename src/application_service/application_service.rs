@@ -98,8 +98,8 @@ struct TransactionRequest {
     #[serde(default)]
     pub ephemeral: Vec<serde_json::Value>,
     /// To-device messages (ignored)
-    #[serde(default, rename = "de.sorunome.msc2409.to_device")]
-    pub to_device: Vec<serde_json::Value>,
+    #[serde(default, rename = "de.sorunome.msc2409.send_to_device")]
+    pub send_to_device: Vec<serde_json::Value>,
 }
 
 async fn transactions_handler(
@@ -156,7 +156,7 @@ async fn transactions_handler(
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
-    bot.clone().handle_transaction_events(req.events, req.to_device).await;
+    bot.clone().handle_transaction_events(req.events, req.send_to_device).await;
     Ok(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({})),
         StatusCode::OK,
