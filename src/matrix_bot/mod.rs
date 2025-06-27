@@ -100,7 +100,11 @@ impl MatrixBot {
                     match self.business_logic_context.processing_command(cmd).await {
                         Ok(reply) => {
                             if let Some(text) = reply.text {
-                                self.send_message(room_id, &text).await;
+                                if reply.markdown {
+                                    self.send_markdown_message(room_id, &text).await;
+                                } else {
+                                    self.send_message(room_id, &text).await;
+                                }
                             }
                         }
                         Err(err) => {
@@ -193,6 +197,17 @@ impl MatrixBot {
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_text(room_id, body).await;
+        }
+    }
+
+    async fn send_markdown_message(&self, room_id: &str, body: &str) {
+        use crate::matrix_bot::utils::markdown_to_html;
+        let html = markdown_to_html(body);
+        if self.room_is_encrypted(room_id).await {
+            let (event_type, content) = self.encryption.encrypt_html(room_id, body, &html).await;
+            self.as_client.send_raw(room_id, &event_type, content).await;
+        } else {
+            self.as_client.send_formatted(room_id, body, &html).await;
         }
     }
 

@@ -90,6 +90,27 @@ impl MatrixAsClient {
             .await;
     }
 
+    pub async fn send_formatted(&self, room_id: &str, body: &str, formatted: &str) {
+        let txn = Uuid::new_v4().to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
+            self.homeserver, room_id, txn
+        );
+        let content = json!({
+            "msgtype": "m.text",
+            "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": formatted
+        });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
     pub async fn send_raw(&self, room_id: &str, event_type: &str, content: serde_json::Value) {
         let txn = Uuid::new_v4().to_string();
         let url = format!(

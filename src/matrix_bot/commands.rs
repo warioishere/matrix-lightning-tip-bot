@@ -23,6 +23,7 @@ pub enum Command  {
 #[derive(Debug)]
 pub struct CommandReply {
     pub text: Option<String>,
+    pub markdown: bool,
     pub image: Option<Vec<u8>>,
     pub payment_hash: Option<String>,
     pub in_key: Option<String>,
@@ -166,6 +167,7 @@ impl CommandReply {
     pub fn text_only(text: &str) -> CommandReply {
         CommandReply {
             text: Some(text.to_string()),
+            markdown: false,
             image: None,
             payment_hash: None,
             in_key: None,
@@ -176,7 +178,19 @@ impl CommandReply {
     pub fn new(text: &str, image: Vec<u8>) -> CommandReply {
         CommandReply {
             text: Some(text.to_string()),
+            markdown: false,
             image: Some(image),
+            payment_hash: None,
+            in_key: None,
+            receiver_message: None,
+        }
+    }
+
+    pub fn markdown(text: &str) -> CommandReply {
+        CommandReply {
+            text: Some(text.to_string()),
+            markdown: true,
+            image: None,
             payment_hash: None,
             in_key: None,
             receiver_message: None,

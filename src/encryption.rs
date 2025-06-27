@@ -71,4 +71,33 @@ impl EncryptionHelper {
             serde_json::to_value(encrypted).expect("serialize encrypted"),
         )
     }
+
+    pub async fn encrypt_html(&self, room_id: &str, body: &str, html: &str) -> (String, serde_json::Value) {
+        use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
+
+        let room_id: OwnedRoomId = room_id.parse().unwrap();
+        let content = RoomMessageEventContent::text_html(body.to_owned(), html.to_owned());
+        let encrypted = self
+            .machine
+            .encrypt_room_event(
+                &room_id,
+                AnyMessageLikeEventContent::RoomMessage(content),
+            )
+            .await
+            .expect("encrypt");
+
+        // Persist store
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+
+        (
+            "m.room.encrypted".to_owned(),
+            serde_json::to_value(encrypted).expect("serialize encrypted"),
+        )
+    }
 }
