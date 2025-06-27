@@ -164,6 +164,28 @@ file so that only your homeserver can deliver events. Queries to
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
 format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.to_device`, and other optional fields.
 
+The bot checks each room for the `m.room.encryption` state event before sending a message. Messages to encrypted rooms are locally encrypted, while unencrypted rooms receive plain text.
+Example code:
+
+```rust
+async fn room_is_encrypted(&self, room_id: &str) -> bool {
+    // cache lookup omitted
+    match self.as_client.room_is_encrypted(room_id).await {
+        Some(true) => true,
+        _ => false,
+    }
+}
+
+async fn send_message(&self, room_id: &str, body: &str) {
+    if self.room_is_encrypted(room_id).await {
+        let (ty, content) = self.encryption.encrypt_text(room_id, body).await;
+        self.as_client.send_raw(room_id, &ty, content).await;
+    } else {
+        self.as_client.send_text(room_id, body).await;
+    }
+}
+```
+
 It is also possible to use the docker-compose file. This will require .env file containing the entries
 ```
 CONFIG_DIR=<path-to-config-directory>
