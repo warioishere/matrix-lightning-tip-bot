@@ -114,11 +114,28 @@ async fn transactions_handler(
     use warp::http::StatusCode;
 
     let auth_header = authorization.as_deref();
-    let token_match = match auth_header {
-        Some(h) if h == format!("Bearer {}", server_token) => true,
-        _ => query.get("access_token") == Some(&server_token),
-    };
-    if !token_match {
+    if let Some(header) = auth_header {
+        if header != format!("Bearer {}", server_token) {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "errcode": "M_FORBIDDEN",
+                    "error": "Invalid application service token",
+                })),
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        if let Some(q) = query.get("access_token") {
+            if q != &server_token {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({
+                        "errcode": "M_FORBIDDEN",
+                        "error": "Invalid application service token",
+                    })),
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+        }
+    } else if query.get("access_token") != Some(&server_token) {
         return Ok(warp::reply::with_status(
             warp::reply::json(&serde_json::json!({
                 "errcode": "M_FORBIDDEN",
