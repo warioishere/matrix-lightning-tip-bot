@@ -118,12 +118,14 @@ used for creating lightning addresses without the bearer token:
 --database-url=/db/db.db                               # The absolute path to your generated db.
 --store-path=/store                                   # Temporary directory for Matrix client cache (defaults to parent of --database-url)
 --avatar-path=mxc://your.server/abcdef               # Optional avatar URL for the bot
+--provision-room=!dummy:matrix.org                   # Optional room ID used to provision the bot user at startup
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
 `--store-path` only controls where temporary cache files are placed.
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
 If `--avatar-path` is set, the bot sets its avatar URL to this mxc link at startup.
+If `--provision-room` is provided and the bot user does not yet exist, the bot will send a dummy message to this room on startup to provision the account.
 
 ### Running
 Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.
@@ -146,6 +148,7 @@ sudo docker run -d \
 --registration-file=/data/config/registration.yaml
 --database-url=/data/db/tipbot_ruma.db
 --avatar-path=mxc://your.server/avatar
+--provision-room=!dummy:matrix.org
 --lnbits-url=https://lnbits.yourdevice.ch
 --lnbits-bearer-token=xxx
 --lnbits-api-key=xxx

@@ -95,6 +95,31 @@ impl MatrixAsClient {
         }
     }
 
+    pub async fn user_exists(&self, user_id: &str) -> Option<bool> {
+        let url = format!(
+            "{}/_matrix/client/v3/profile/{}",
+            self.homeserver, user_id
+        );
+        match self
+            .http
+            .get(url)
+            .query(&[("user_id", self.user_id.clone()), ("access_token", self.as_token.clone())])
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.status() {
+                StatusCode::OK => Some(true),
+                StatusCode::NOT_FOUND => Some(false),
+                _ => None,
+            },
+            Err(_) => None,
+        }
+    }
+
+    pub async fn provision_user(&self, room_id: &str) {
+        self.send_text(room_id, "provision").await;
+    }
+
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> Option<serde_json::Value> {
         let url = format!(
             "{}/_matrix/client/v3/rooms/{}/event/{}",

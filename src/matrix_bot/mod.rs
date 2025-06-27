@@ -12,6 +12,7 @@ use crate::encryption::EncryptionHelper;
 use serde_json::Value;
 use simple_error::{SimpleError, bail};
 use std::collections::HashMap;
+use url::Url;
 use tokio::sync::Mutex;
 
 pub struct MatrixBot {
@@ -35,7 +36,23 @@ impl MatrixBot {
     }
 
     pub async fn init(&self) {
-        // nothing for now
+        let user_id = self.as_client.user_id();
+        let exists = self.as_client.user_exists(user_id).await.unwrap_or(true);
+        if !exists {
+            let room = self
+                .business_logic_context
+                .config()
+                .provision_room
+                .clone()
+                .unwrap_or_else(|| {
+                    let host = url::Url::parse(&self.business_logic_context.config().matrix_server)
+                        .ok()
+                        .and_then(|u| u.host_str().map(|h| h.to_string()))
+                        .unwrap_or_else(|| "example.com".to_string());
+                    format!("!dummy:{}", host)
+                });
+            self.as_client.provision_user(&room).await;
+        }
     }
 
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
