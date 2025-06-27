@@ -1,10 +1,23 @@
 use matrix_sdk_crypto::OlmMachine;
+use std::pin::Pin;
 use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use tempfile::TempDir;
 use tokio::fs;
 use crate::data_layer::data_layer::DataLayer;
 use crate::config::config::Config;
+
+use matrix_sdk_crypto::store::{Store, Changes};
+
+trait StoreSave {
+    fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>>;
+}
+
+impl StoreSave for Store {
+    fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>> {
+        Box::pin(async move { self.save_changes(Changes::default()).await })
+    }
+}
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
@@ -121,6 +134,7 @@ impl EncryptionHelper {
 
         if !changes.to_device_events.is_empty() {
             let _ = self.machine.receive_sync_changes(changes).await;
+            let _ = self.machine.store().save().await;
         }
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
