@@ -5,6 +5,7 @@ use url::Url;
 use uuid::Uuid;
 use urlencoding::encode;
 
+#[derive(Clone)]
 pub struct MatrixAsClient {
     homeserver: String,
     user_id: String,

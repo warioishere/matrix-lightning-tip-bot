@@ -12,7 +12,9 @@ use crate::encryption::EncryptionHelper;
 use serde_json::Value;
 use simple_error::{SimpleError, bail};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
@@ -49,7 +51,7 @@ impl MatrixBot {
         Ok(())
     }
 
-    pub async fn handle_transaction_events(&self, events: Vec<Value>) {
+    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>) {
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
@@ -67,7 +69,7 @@ impl MatrixBot {
                                 .get("m.relates_to")
                                 .and_then(|r| r.get("event_id"))
                                 .and_then(|id| id.as_str());
-                            self.handle_message(room_id, sender, body, reply_event).await;
+                            self.clone().handle_message(room_id, sender, body, reply_event).await;
                         }
                     }
                 }
@@ -84,6 +86,8 @@ impl MatrixBot {
                         ) {
                             if state_key == self.as_client.user_id() {
                                 self.as_client.accept_invite(room_id).await;
+                                let welcome = self.business_logic_context.get_help_content();
+                                self.clone().send_markdown_message(room_id, &welcome).await;
                             }
                         }
                     }
@@ -93,7 +97,7 @@ impl MatrixBot {
         }
     }
 
-    async fn handle_message(&self, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
+    async fn handle_message(self: Arc<Self>, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
         match self.extract_command(sender, room_id, body, reply_event).await {
             Ok(cmd) => {
                 if let Some(cmd) = cmd {
@@ -108,6 +112,9 @@ impl MatrixBot {
                             }
                             if let Some(image) = reply.image {
                                 self.send_image(room_id, "qr.png", image).await;
+                            }
+                            if let (Some(hash), Some(key)) = (reply.payment_hash, reply.in_key) {
+                                self.clone().spawn_invoice_watch(room_id.to_string(), key, hash);
                             }
                         }
                         Err(err) => {
@@ -221,6 +228,34 @@ impl MatrixBot {
             .await
         {
             self.as_client.send_image(room_id, name, &mxc).await;
+        }
+    }
+
+    fn spawn_invoice_watch(self: Arc<Self>, room: String, in_key: String, payment_hash: String) {
+        let bot = self.clone();
+        tokio::spawn(async move {
+            Self::watch_invoice(room, in_key, payment_hash, bot).await;
+        });
+    }
+
+    async fn watch_invoice(room: String, in_key: String, payment_hash: String, bot: Arc<Self>) {
+        for _ in 0..30 {
+            match bot
+                .business_logic_context
+                .lnbits_client
+                .invoice_status(&in_key, &payment_hash)
+                .await
+            {
+                Ok(true) => {
+                    let _ = bot.send_message(&room, "Invoice paid").await;
+                    return;
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    log::warn!("Error checking invoice status: {}", err);
+                }
+            }
+            sleep(Duration::from_secs(10)).await;
         }
     }
 
