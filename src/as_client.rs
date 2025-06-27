@@ -1,5 +1,6 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use crate::config::config::Config;
 
 pub struct MatrixAsClient {
@@ -13,6 +14,35 @@ impl MatrixAsClient {
     pub fn new(config: &Config) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
+    async fn ensure_joined(&self, room_id: &str) {
+        let encoded_user = utf8_percent_encode(&self.user_id, NON_ALPHANUMERIC).to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/state/m.room.member/{}",
+            self.homeserver, room_id, encoded_user
+        );
+        let joined = match self
+            .http
+            .get(&url)
+            .query(&self.auth_query())
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status() == StatusCode::OK => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(val) => val.get("membership").and_then(|m| m.as_str()) == Some("join"),
+                    Err(_) => false,
+                }
+            }
+            _ => false,
+        };
+
+        if !joined {
+            self.join_room(room_id).await;
+        }
+    }
+
+        self.ensure_joined(room_id).await;
+        self.ensure_joined(room_id).await;
             user_id: format!(
                 "@{}:{}",
                 config.registration.sender_localpart,
