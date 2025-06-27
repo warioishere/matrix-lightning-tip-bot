@@ -48,6 +48,21 @@ impl MatrixAsClient {
             .await;
     }
 
+    pub async fn set_avatar_url(&self, mxc_url: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/profile/{}/avatar_url",
+            self.homeserver, encode(&self.user_id)
+        );
+        let content = json!({ "avatar_url": mxc_url });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
     pub async fn accept_invite(&self, room_id: &str) {
         let url = format!(
             "{}/_matrix/client/v3/rooms/{}/state/m.room.member/{}",

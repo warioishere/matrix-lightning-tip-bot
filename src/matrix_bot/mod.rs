@@ -47,6 +47,7 @@ impl MatrixBot {
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(avatar) = &self.business_logic_context.config().avatar_path {
             log::info!("Using avatar {}", avatar);
+            self.as_client.set_avatar_url(avatar).await;
         }
         Ok(())
     }

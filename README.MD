@@ -123,7 +123,8 @@ used for creating lightning addresses without the bearer token:
 
 `--store-path` only controls where temporary cache files are placed.
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
-If `--avatar-path` is set, the bot sets its avatar URL to this mxc link at startup.
+If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
+using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
 
 ### Running
 Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.
