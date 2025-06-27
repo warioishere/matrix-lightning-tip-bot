@@ -13,7 +13,14 @@ impl MatrixAsClient {
     pub fn new(config: &Config) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
-            user_id: format!("@{}:{}", config.registration.sender_localpart, url::Url::parse(&config.matrix_server).unwrap().host_str().unwrap()),
+            user_id: format!(
+                "@{}:{}",
+                config.registration.sender_localpart,
+                url::Url::parse(&config.matrix_server)
+                    .unwrap()
+                    .host_str()
+                    .unwrap()
+            ),
             as_token: config.registration.app_token.clone(),
             http: Client::new(),
         }
@@ -67,7 +74,6 @@ impl MatrixAsClient {
             .await;
     }
 
-
     pub async fn room_is_encrypted(&self, room_id: &str) -> Option<bool> {
         let url = format!(
             "{}/_matrix/client/v3/rooms/{}/state/m.room.encryption",
@@ -87,20 +93,6 @@ impl MatrixAsClient {
             },
             Err(_) => None,
         }
-    }
-    pub async fn send_raw(&self, room_id: &str, event_type: &str, content: serde_json::Value) {
-        let txn = uuid::Uuid::new_v4().to_string();
-        let url = format!(
-            "{}/_matrix/client/v3/rooms/{}/send/{}/{}",
-            self.homeserver, room_id, event_type, txn
-        );
-        let _ = self
-            .http
-            .put(url)
-            .query(&self.auth_query())
-            .json(&content)
-            .send()
-            .await;
     }
 
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> Option<serde_json::Value> {
@@ -118,27 +110,6 @@ impl MatrixAsClient {
             Ok(resp) => match resp.json::<serde_json::Value>().await {
                 Ok(json) => Some(json),
                 Err(_) => None,
-            },
-            Err(_) => None,
-        }
-    }
-
-    pub async fn room_is_encrypted(&self, room_id: &str) -> Option<bool> {
-        let url = format!(
-            "{}/_matrix/client/v3/rooms/{}/state/m.room.encryption",
-            self.homeserver, room_id
-        );
-        match self
-            .http
-            .get(url)
-            .query(&self.auth_query())
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.status() {
-                StatusCode::OK => Some(true),
-                StatusCode::NOT_FOUND => Some(false),
-                _ => None,
             },
             Err(_) => None,
         }
