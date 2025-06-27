@@ -35,7 +35,11 @@ impl MatrixBot {
     }
 
     pub async fn init(&self) {
-        // Application Service users are provisioned automatically on first use.
+        self
+            .as_client
+            .set_presence("online", "Ready to help")
+            .await;
+        log::info!("MatrixBot initialized");
     }
 
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -74,8 +78,13 @@ impl MatrixBot {
                         .and_then(|m| m.as_str())
                         == Some("invite")
                     {
-                        if let Some(room_id) = ev.get("room_id").and_then(|r| r.as_str()) {
-                            self.as_client.join_room(room_id).await;
+                        if let (Some(room_id), Some(state_key)) = (
+                            ev.get("room_id").and_then(|r| r.as_str()),
+                            ev.get("state_key").and_then(|s| s.as_str()),
+                        ) {
+                            if state_key == self.as_client.user_id() {
+                                self.as_client.accept_invite(room_id).await;
+                            }
                         }
                     }
                 }
