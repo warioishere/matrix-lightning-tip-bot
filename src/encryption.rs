@@ -70,6 +70,10 @@ impl EncryptionHelper {
             .await
             .expect("encrypt");
 
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
         // Persist store
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
             .await
@@ -98,6 +102,10 @@ impl EncryptionHelper {
             )
             .await
             .expect("encrypt");
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
 
         // Persist store
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -133,8 +141,12 @@ impl EncryptionHelper {
         };
 
         if !changes.to_device_events.is_empty() {
-            let _ = self.machine.receive_sync_changes(changes).await;
-            let _ = self.machine.store().save().await;
+            if let Err(e) = self.machine.receive_sync_changes(changes).await {
+                log::error!("Error processing to-device events: {}", e);
+            }
+            if let Err(e) = self.machine.store().save().await {
+                log::error!("Failed to save crypto store: {}", e);
+            }
         }
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -159,6 +171,10 @@ impl EncryptionHelper {
             .decrypt_room_event(&raw, &room_id, &settings)
             .await
             .ok()?;
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
             .await
