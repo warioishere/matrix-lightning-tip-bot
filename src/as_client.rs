@@ -206,4 +206,31 @@ impl MatrixAsClient {
             Err(_) => None,
         }
     }
+
+    async fn create_dm_room(&self, user_id: &str) -> Option<String> {
+        let url = format!("{}/_matrix/client/v3/createRoom", self.homeserver);
+        let content = json!({
+            "invite": [user_id],
+            "is_direct": true
+        });
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned())
+    }
+
+    pub async fn send_dm(&self, user_id: &str, body: &str) {
+        if let Some(room_id) = self.create_dm_room(user_id).await {
+            self.send_text(&room_id, body).await;
+        }
+    }
 }

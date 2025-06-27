@@ -116,6 +116,9 @@ impl MatrixBot {
                             if let (Some(hash), Some(key)) = (reply.payment_hash, reply.in_key) {
                                 self.clone().spawn_invoice_watch(room_id.to_string(), key, hash);
                             }
+                            if let (Some(dm), Some(user)) = (reply.receiver_message, reply.receiver_id) {
+                                self.as_client.send_dm(&user, &dm).await;
+                            }
                         }
                         Err(err) => {
                             log::warn!("Error processing command: {:?}", err);

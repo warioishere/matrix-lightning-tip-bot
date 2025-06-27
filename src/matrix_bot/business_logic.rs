@@ -265,6 +265,7 @@ impl BusinessLogicContext {
                 format!("{} you received {} Sats from {}", recipient, amount, sender)
             };
             reply.receiver_message = Some(receiver_msg);
+            reply.receiver_id = Some(recipient.to_string());
         }
 
         Ok(reply)

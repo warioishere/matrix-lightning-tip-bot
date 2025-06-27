@@ -28,6 +28,7 @@ pub struct CommandReply {
     pub payment_hash: Option<String>,
     pub in_key: Option<String>,
     pub receiver_message: Option<String>,
+    pub receiver_id: Option<String>,
 }
 
 impl Command {
@@ -172,6 +173,7 @@ impl CommandReply {
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            receiver_id: None,
         }
     }
 
@@ -183,6 +185,7 @@ impl CommandReply {
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            receiver_id: None,
         }
     }
 
@@ -194,6 +197,7 @@ impl CommandReply {
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            receiver_id: None,
         }
     }
 
