@@ -228,7 +228,7 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
         .and(warp::path("v1"))
         .and(warp::path("transactions"))
         .and(warp::path::param::<String>())
-        .and(warp::post())
+        .and(warp::put())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::body::json())
         .and(warp::header::optional::<String>("authorization"))

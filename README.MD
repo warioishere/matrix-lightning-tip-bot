@@ -151,10 +151,10 @@ sudo docker run -d \
 --lnbits-api-key=xxx
 ```
 
-The bot exposes the Matrix Application Service API at the `url` given in the registration file. The server listens on the port from that URL. Ensure your homeserver posts transactions to the `/` paths defined in the spec.
+The bot exposes the Matrix Application Service API at the `url` given in the registration file. The server listens on the port from that URL. Ensure your homeserver sends transactions using `PUT` requests to the `/` paths defined in the spec.
 Your homeserver **must** be able to reach this address and is responsible for
 pushing events there. Once the registration file is listed under
-`app_service_config_files`, Synapse will POST transactions to
+`app_service_config_files`, Synapse will PUT transactions to
 `/_matrix/app/v1/transactions/{txnId}` at that URL. The bot does not call
 `/sync`; all events are delivered via these transactions. The bot verifies that
 transactions include the correct `access_token` so only your homeserver can
