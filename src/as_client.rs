@@ -39,6 +39,48 @@ impl MatrixAsClient {
         &self.user_id
     }
 
+    pub async fn user_exists(&self) -> Option<bool> {
+        let url = format!(
+            "{}/_matrix/client/v3/profile/{}",
+            self.homeserver, self.user_id
+        );
+        match self
+            .http
+            .get(url)
+            .query(&self.auth_query())
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.status() {
+                StatusCode::OK => Some(true),
+                StatusCode::NOT_FOUND => Some(false),
+                _ => None,
+            },
+            Err(_) => None,
+        }
+    }
+
+    pub async fn register_user(&self) {
+        let url = format!("{}/_matrix/client/v3/register", self.homeserver);
+        let localpart = self
+            .user_id
+            .split(':')
+            .next()
+            .unwrap()
+            .trim_start_matches('@');
+        let content = json!({
+            "type": "m.login.application_service",
+            "username": localpart,
+        });
+        let _ = self
+            .http
+            .post(url)
+            .query(&[("access_token", self.as_token.clone())])
+            .json(&content)
+            .send()
+            .await;
+    }
+
     pub async fn send_text(&self, room_id: &str, body: &str) {
         let txn = Uuid::new_v4().to_string();
         let url = format!(

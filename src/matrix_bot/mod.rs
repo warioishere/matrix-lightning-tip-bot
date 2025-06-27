@@ -35,6 +35,15 @@ impl MatrixBot {
     }
 
     pub async fn init(&self) {
+        match self.as_client.user_exists().await {
+            Some(true) => {}
+            Some(false) => {
+                self.as_client.register_user().await;
+            }
+            None => {
+                log::warn!("Failed to check bot user profile");
+            }
+        }
         log::info!("MatrixBot initialized");
     }
 
