@@ -265,6 +265,7 @@ impl BusinessLogicContext {
                 format!("{} you received {} Sats from {}", recipient, amount, sender)
             };
             reply.receiver_message = Some(receiver_msg);
+            reply.receiver_id = Some(recipient.to_string());
         }
 
         Ok(reply)
@@ -355,7 +356,7 @@ impl BusinessLogicContext {
 
     async fn do_process_help(&self) -> Result<CommandReply, SimpleError> {
         log::info!("processing help command ..");
-        Ok(CommandReply::text_only(self.get_help_content().as_str()))
+        Ok(CommandReply::markdown(self.get_help_content().as_str()))
     }
 
     async fn do_process_party(&self) -> Result<CommandReply, SimpleError> {

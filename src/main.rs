@@ -41,7 +41,7 @@ async fn main() -> Result<(), SimpleError>  {
 
     let matrix_bot: Arc<MatrixBot> = Arc::new(MatrixBot::new(data_layer, ln_client, &config).await);
 
-    matrix_bot.init().await;
+    matrix_bot.clone().init().await;
     matrix_bot.sync().await.map_err(|e| SimpleError::new(format!("{:?}", e)))?;
 
     run_server(matrix_bot.clone(), config.registration.clone()).await;

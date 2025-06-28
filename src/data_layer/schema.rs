@@ -26,3 +26,10 @@ diesel::table! {
         crypto -> Binary,
     }
 }
+
+diesel::table! {
+    dm_rooms (matrix_id) {
+        matrix_id -> Text,
+        room_id -> Text,
+    }
+}

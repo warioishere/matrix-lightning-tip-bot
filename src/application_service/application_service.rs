@@ -98,8 +98,8 @@ struct TransactionRequest {
     #[serde(default)]
     pub ephemeral: Vec<serde_json::Value>,
     /// To-device messages (ignored)
-    #[serde(default, rename = "de.sorunome.msc2409.to_device")]
-    pub to_device: Vec<serde_json::Value>,
+    #[serde(default, rename = "de.sorunome.msc2409.send_to_device")]
+    pub send_to_device: Vec<serde_json::Value>,
 }
 
 async fn transactions_handler(
@@ -156,7 +156,7 @@ async fn transactions_handler(
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
-    bot.handle_transaction_events(req.events).await;
+    bot.clone().handle_transaction_events(req.events, req.send_to_device).await;
     Ok(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({})),
         StatusCode::OK,
@@ -188,11 +188,13 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
 
     let query_state = state.clone();
 
+    // GET /_matrix/app/v1/users/{userId}
     let query_user = warp::path("_matrix")
         .and(warp::path("app"))
         .and(warp::path("v1"))
         .and(warp::path("users"))
         .and(warp::path::param::<String>())
+        .and(warp::get())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::path::end())
         .and(warp::any().map(move || query_state.clone()))
@@ -228,7 +230,7 @@ pub async fn run_server(bot: Arc<MatrixBot>, registration: Registration) {
         .and(warp::path("v1"))
         .and(warp::path("transactions"))
         .and(warp::path::param::<String>())
-        .and(warp::post())
+        .and(warp::put())
         .and(warp::query::<std::collections::HashMap<String, String>>())
         .and(warp::body::json())
         .and(warp::header::optional::<String>("authorization"))

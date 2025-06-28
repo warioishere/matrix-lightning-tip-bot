@@ -12,7 +12,9 @@ use crate::encryption::EncryptionHelper;
 use serde_json::Value;
 use simple_error::{SimpleError, bail};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
@@ -24,32 +26,40 @@ pub struct MatrixBot {
 impl MatrixBot {
     pub async fn new(data_layer: DataLayer, lnbits_client: LNBitsClient, config: &Config) -> Self {
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
-        let as_client = MatrixAsClient::new(config);
+        let as_client = MatrixAsClient::new(config, data_layer.clone());
         let encryption = EncryptionHelper::new(&data_layer, config).await;
-        MatrixBot {
+        let bot = MatrixBot {
             business_logic_context: ctx,
             as_client,
             encryption,
             room_encryption: Mutex::new(HashMap::new()),
-        }
+        };
+        bot.encryption.process_outgoing_requests(&bot.as_client).await;
+        bot
     }
 
-    pub async fn init(&self) {
+    pub async fn init(self: Arc<Self>) {
         self
             .as_client
             .set_presence("online", "Ready to help")
             .await;
+        self.clone().start_presence_loop();
         log::info!("MatrixBot initialized");
     }
 
     pub async fn sync(&self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(avatar) = &self.business_logic_context.config().avatar_path {
             log::info!("Using avatar {}", avatar);
+            self.as_client.set_avatar_url(avatar).await;
         }
         Ok(())
     }
 
-    pub async fn handle_transaction_events(&self, events: Vec<Value>) {
+    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, send_to_device: Vec<Value>) {
+        self
+            .encryption
+            .receive_to_device(send_to_device, &self.as_client)
+            .await;
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
@@ -67,7 +77,24 @@ impl MatrixBot {
                                 .get("m.relates_to")
                                 .and_then(|r| r.get("event_id"))
                                 .and_then(|id| id.as_str());
-                            self.handle_message(room_id, sender, body, reply_event).await;
+                            self.clone().handle_message(room_id, sender, body, reply_event).await;
+                        }
+                    }
+                }
+                Some("m.room.encrypted") => {
+                    if let (Some(room_id), Some(sender)) = (
+                        ev.get("room_id").and_then(|r| r.as_str()),
+                        ev.get("sender").and_then(|s| s.as_str()),
+                    ) {
+                        if sender == self.as_client.user_id() {
+                            continue;
+                        }
+                        if let Some(body) = self
+                            .encryption
+                            .decrypt_event(room_id, &ev, &self.as_client)
+                            .await
+                        {
+                            self.clone().handle_message(room_id, sender, &body, None).await;
                         }
                     }
                 }
@@ -84,6 +111,8 @@ impl MatrixBot {
                         ) {
                             if state_key == self.as_client.user_id() {
                                 self.as_client.accept_invite(room_id).await;
+                                let welcome = self.business_logic_context.get_help_content();
+                                self.clone().send_markdown_message(room_id, &welcome).await;
                             }
                         }
                     }
@@ -93,14 +122,27 @@ impl MatrixBot {
         }
     }
 
-    async fn handle_message(&self, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
+    async fn handle_message(self: Arc<Self>, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
         match self.extract_command(sender, room_id, body, reply_event).await {
             Ok(cmd) => {
                 if let Some(cmd) = cmd {
                     match self.business_logic_context.processing_command(cmd).await {
                         Ok(reply) => {
                             if let Some(text) = reply.text {
-                                self.send_message(room_id, &text).await;
+                                if reply.markdown {
+                                    self.send_markdown_message(room_id, &text).await;
+                                } else {
+                                    self.send_message(room_id, &text).await;
+                                }
+                            }
+                            if let Some(image) = reply.image {
+                                self.send_image(room_id, "qr.png", image).await;
+                            }
+                            if let (Some(hash), Some(key)) = (reply.payment_hash, reply.in_key) {
+                                self.clone().spawn_invoice_watch(room_id.to_string(), key, hash);
+                            }
+                            if let (Some(dm), Some(user)) = (reply.receiver_message, reply.receiver_id) {
+                                self.as_client.send_dm(&user, &dm).await;
                             }
                         }
                         Err(err) => {
@@ -189,11 +231,77 @@ impl MatrixBot {
 
     async fn send_message(&self, room_id: &str, body: &str) {
         if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
+            let (event_type, content) = self
+                .encryption
+                .encrypt_text(room_id, body, &self.as_client)
+                .await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_text(room_id, body).await;
         }
+    }
+
+    async fn send_markdown_message(&self, room_id: &str, body: &str) {
+        use crate::matrix_bot::utils::markdown_to_html;
+        let html = markdown_to_html(body);
+        if self.room_is_encrypted(room_id).await {
+            let (event_type, content) = self
+                .encryption
+                .encrypt_html(room_id, body, &html, &self.as_client)
+                .await;
+            self.as_client.send_raw(room_id, &event_type, content).await;
+        } else {
+            self.as_client.send_formatted(room_id, body, &html).await;
+        }
+    }
+
+    async fn send_image(&self, room_id: &str, name: &str, data: Vec<u8>) {
+        if let Some(mxc) = self
+            .as_client
+            .upload(&data, "image/png", name)
+            .await
+        {
+            self.as_client.send_image(room_id, name, &mxc).await;
+        }
+    }
+
+    fn spawn_invoice_watch(self: Arc<Self>, room: String, in_key: String, payment_hash: String) {
+        let bot = self.clone();
+        tokio::spawn(async move {
+            Self::watch_invoice(room, in_key, payment_hash, bot).await;
+        });
+    }
+
+    async fn watch_invoice(room: String, in_key: String, payment_hash: String, bot: Arc<Self>) {
+        for _ in 0..30 {
+            match bot
+                .business_logic_context
+                .lnbits_client
+                .invoice_status(&in_key, &payment_hash)
+                .await
+            {
+                Ok(true) => {
+                    let _ = bot.send_message(&room, "Invoice paid").await;
+                    return;
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    log::warn!("Error checking invoice status: {}", err);
+                }
+            }
+            sleep(Duration::from_secs(10)).await;
+        }
+    }
+
+    fn start_presence_loop(self: Arc<Self>) {
+        tokio::spawn(async move {
+            loop {
+                self.as_client
+                    .set_presence("online", "Ready to help")
+                    .await;
+                sleep(Duration::from_secs(300)).await;
+            }
+        });
     }
 
     fn bot_name(&self) -> String {
