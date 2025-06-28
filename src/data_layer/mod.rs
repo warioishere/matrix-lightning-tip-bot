@@ -10,7 +10,7 @@ pub mod data_layer {
     pub  use crate::data_layer::models::{
         LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
         LnAddress, NewLnAddress, MatrixStore, NewMatrixStore,
-        DmRoom, NewDmRoom,
+        NewDmRoom,
     };
     use crate::data_layer::schema;
 

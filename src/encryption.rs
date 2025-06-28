@@ -8,7 +8,6 @@ use crate::data_layer::data_layer::DataLayer;
 use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
-use serde::Deserialize;
 
 trait StoreSave {
     fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>>;
