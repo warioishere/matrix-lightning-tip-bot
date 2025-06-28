@@ -43,7 +43,8 @@ impl MatrixAsClient {
     pub async fn set_presence(&self, presence: &str, status_msg: &str) {
         let url = format!(
             "{}/_matrix/client/v3/presence/{}/status",
-            self.homeserver, self.user_id
+            self.homeserver,
+            encode(&self.user_id)
         );
         let content = json!({
             "presence": presence,
