@@ -11,7 +11,6 @@ pub mod config {
         pub lnbits_bearer_token: String,
         pub lnbits_api_key: String,
         pub database_url: String,
-        pub store_path: String,
         pub avatar_path: Option<String>,
         pub debug_level: String,
         pub allowed_matrix_servers: Option<Vec<String>>,
@@ -24,7 +23,6 @@ pub mod config {
                    lnbits_bearer_token: &str,
                    lnbits_api_key: &str,
                    database_url: &str,
-                   store_path: &str,
                    avatar_path: Option<String>,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
@@ -35,7 +33,6 @@ pub mod config {
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 lnbits_api_key: lnbits_api_key.to_string(),
                 database_url: database_url.to_string(),
-                store_path: store_path.to_string(),
                 avatar_path,
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
@@ -79,10 +76,6 @@ pub mod config {
                 .long("database-url")
                 .required(true)
                 .help("database url"))
-            .arg(Arg::new("store-path")
-                .long("store-path")
-                .required(false)
-                .help("Path for Matrix client store"))
             .arg(Arg::new("avatar-path")
                 .long("avatar-path")
                 .required(false)
@@ -114,17 +107,6 @@ pub mod config {
 
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
-        let store_path = matches
-            .get_one::<String>("store-path")
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                let db_path = std::path::Path::new(database_url);
-                db_path
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new("."))
-                    .to_string_lossy()
-                    .to_string()
-            });
 
         let avatar_path = matches
             .get_one::<String>("avatar-path")
@@ -142,7 +124,6 @@ pub mod config {
                     lnbits_bearer_token,
                     lnbits_api_key,
                     database_url,
-                    store_path.as_str(),
                     avatar_path,
                     debug_level,
                     allowed_matrix_servers)

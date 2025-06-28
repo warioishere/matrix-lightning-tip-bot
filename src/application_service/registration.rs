@@ -69,13 +69,6 @@ pub type NamespaceList = Vec<Namespace>;
 
 impl Registration {
 
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        let data = serde_yaml::to_string(self)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-        fs::write(path, data)?;
-        Ok(())
-    }
-
     #[allow(dead_code)]
     pub fn load(path: &Path) -> io::Result<Self> {
         let data = fs::read_to_string(path)?;

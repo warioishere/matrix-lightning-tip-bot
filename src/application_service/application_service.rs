@@ -12,6 +12,7 @@ use ruma::api::appservice::query::query_user_id::v1::Request as QueryUserIdReque
 
 type Event = String;
 
+#[allow(dead_code)]
 pub struct ApplicationServiceState {
     pub clients: HashMap<Arc<ruma::UserId>, Client>,  // Wrap UserId in Arc
     pub intents: HashMap<Arc<ruma::UserId>, String>,   // Wrap UserId in Arc
@@ -80,6 +81,7 @@ pub struct HostConfig {
     pub port: Option<u16>, // Port is optional if using a Unix socket
 }
 
+#[allow(dead_code)]
 pub struct CreateOpts {
     // Required fields
     registration: Registration, // Using Arc to represent a shared Registration instance
@@ -96,6 +98,7 @@ struct TransactionRequest {
     pub events: Vec<serde_json::Value>,
     /// Ephemeral events (ignored)
     #[serde(default)]
+    #[allow(dead_code)]
     pub ephemeral: Vec<serde_json::Value>,
     /// To-device messages (ignored)
     #[serde(default, rename = "de.sorunome.msc2409.send_to_device")]

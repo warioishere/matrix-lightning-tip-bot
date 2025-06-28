@@ -11,14 +11,19 @@ use url::Url;
 use uuid::Uuid;
 use urlencoding::encode;
 
+pub const DEVICE_ID: &str = "ASDEVICE";
+
 #[derive(Clone)]
 pub struct MatrixAsClient {
     homeserver: String,
     user_id: String,
     as_token: String,
+    access_token: Option<String>,
     http: Client,
     dm_rooms: Arc<Mutex<HashMap<String, String>>>,
     data_layer: DataLayer,
+    #[allow(dead_code)]
+    device_id: String,
 }
 
 impl MatrixAsClient {
@@ -34,9 +39,61 @@ impl MatrixAsClient {
                     .unwrap(),
             ),
             as_token: config.registration.app_token.clone(),
+            access_token: None,
             http: Client::new(),
             dm_rooms: Arc::new(Mutex::new(HashMap::new())),
             data_layer,
+            device_id: DEVICE_ID.to_owned(),
+        }
+    }
+
+    pub fn load_auth(&mut self) {
+        if let Some(record) = self.data_layer.load_client_auth() {
+            self.access_token = Some(record.access_token);
+            self.device_id = record.device_id;
+        }
+    }
+
+    pub fn has_access_token(&self) -> bool {
+        self.access_token.is_some()
+    }
+
+    async fn save_auth(&self) {
+        if let Some(token) = &self.access_token {
+            self.data_layer
+                .save_client_auth(token, &self.device_id);
+        }
+    }
+
+    pub async fn login(&mut self) {
+        let localpart = self
+            .user_id
+            .split(':')
+            .next()
+            .unwrap()
+            .trim_start_matches('@');
+        let url = format!(
+            "{}/_matrix/client/v3/login?access_token={}",
+            self.homeserver, self.as_token
+        );
+        let body = json!({
+            "type": "m.login.application_service",
+            "identifier": { "type": "m.id.user", "user": localpart },
+            "device_id": self.device_id,
+            "initial_device_display_name": "Lightning Tip Bot"
+        });
+        if let Ok(resp) = self.http.post(url).json(&body).send().await {
+            if resp.status() == StatusCode::OK {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(access) = json.get("access_token").and_then(|v| v.as_str()) {
+                        self.access_token = Some(access.to_owned());
+                    }
+                    if let Some(dev) = json.get("device_id").and_then(|v| v.as_str()) {
+                        self.device_id = dev.to_owned();
+                    }
+                    self.save_auth().await;
+                }
+            }
         }
     }
 
@@ -91,8 +148,8 @@ impl MatrixAsClient {
 
     fn auth_query(&self) -> Vec<(&str, String)> {
         vec![
-            ("user_id", self.user_id.clone()),
-            ("access_token", self.as_token.clone()),
+            ("access_token", self.access_token.clone().unwrap_or_default()),
+            ("device_id", self.device_id.clone()),
         ]
     }
 
@@ -313,25 +370,24 @@ impl MatrixAsClient {
     pub async fn keys_upload(
         &self,
         request: upload_keys::v3::Request,
-        device_id: Option<&str>,
     ) -> Option<upload_keys::v3::Response> {
-        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
-        use ruma::{OwnedUserId, UserId};
-        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
-        let mut http_req = request
-            .try_into_http_request_with_user_id::<Vec<u8>>(
+        use ruma::api::{OutgoingRequest, SendAccessToken, MatrixVersion};
+        let token = self.access_token.as_deref()?;
+        let http_req = request
+            .try_into_http_request::<Vec<u8>>(
                 &self.homeserver,
-                SendAccessToken::Appservice(&self.as_token),
-                &user,
+                SendAccessToken::IfRequired(token),
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
-        if let Some(id) = device_id {
-            let mut uri = http_req.uri().to_string();
-            let sep = if uri.contains('?') { '&' } else { '?' };
-            uri.push_str(&format!("{sep}device_id={}", encode(id)));
-            *http_req.uri_mut() = uri.parse().ok()?;
-        }
+
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
+
         let response = self.send_request(http_req).await?;
         upload_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -340,17 +396,23 @@ impl MatrixAsClient {
         &self,
         request: get_keys::v3::Request,
     ) -> Option<get_keys::v3::Response> {
-        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
-        use ruma::{OwnedUserId, UserId};
-        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        use ruma::api::{OutgoingRequest, SendAccessToken, MatrixVersion};
+        let token = self.access_token.as_deref()?;
         let http_req = request
-            .try_into_http_request_with_user_id::<Vec<u8>>(
+            .try_into_http_request::<Vec<u8>>(
                 &self.homeserver,
-                SendAccessToken::Appservice(&self.as_token),
-                &user,
+                SendAccessToken::IfRequired(token),
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
+
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
+
         let response = self.send_request(http_req).await?;
         get_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -359,17 +421,23 @@ impl MatrixAsClient {
         &self,
         request: claim_keys::v3::Request,
     ) -> Option<claim_keys::v3::Response> {
-        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
-        use ruma::{OwnedUserId, UserId};
-        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        use ruma::api::{OutgoingRequest, SendAccessToken, MatrixVersion};
+        let token = self.access_token.as_deref()?;
         let http_req = request
-            .try_into_http_request_with_user_id::<Vec<u8>>(
+            .try_into_http_request::<Vec<u8>>(
                 &self.homeserver,
-                SendAccessToken::Appservice(&self.as_token),
-                &user,
+                SendAccessToken::IfRequired(token),
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
+
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
+
         let response = self.send_request(http_req).await?;
         claim_keys::v3::Response::try_from_http_response(response).ok()
     }

@@ -1,6 +1,6 @@
 use clap::{Arg, Command};
 use rand::{distr::Alphanumeric, Rng};
-use std::path::Path;
+use std::{fs, path::Path};
 
 #[path = "../application_service/registration.rs"]
 mod registration;
@@ -55,7 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         msc3202: None,
     };
 
-    registration.save(Path::new(output))?;
+    let yaml = serde_yaml::to_string(&registration)?;
+    fs::write(Path::new(output), yaml)?;
     println!("Wrote registration file to {}", output);
     Ok(())
 }

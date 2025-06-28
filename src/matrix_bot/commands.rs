@@ -17,7 +17,6 @@ pub enum Command  {
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
     LinkToZeusWallet { sender: String },
-    None,
 }
 
 #[derive(Debug)]
@@ -31,15 +30,6 @@ pub struct CommandReply {
     pub receiver_id: Option<String>,
 }
 
-impl Command {
-
-    pub fn is_none(&self) -> bool {
-        match self {
-            Command::None => true,
-            _ => false
-        }
-    }
-}
 
 pub fn tip(sender:&str, text: &str, replyee: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
@@ -201,8 +191,5 @@ impl CommandReply {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        !self.text.is_some() && !self.image.is_some()
-    }
 }
 
