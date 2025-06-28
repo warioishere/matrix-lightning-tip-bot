@@ -124,10 +124,9 @@ used for creating lightning addresses without the bearer token:
 ```
 
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
-At startup the bot performs a client login using the application service token and stores
-the returned `access_token` together with the fixed device ID `ASDEVICE` in the
-database. All Matrix Client-Server API calls then use this token so no device
-configuration is required.
+At startup the bot registers a device using [MSC4190](https://github.com/matrix-org/matrix-spec-proposals/pull/4190)
+and thereafter authenticates all Client-Server API requests solely with the application service token.
+No interactive login or access token handling is performed by the bot itself.
 If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
 using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
 
@@ -170,10 +169,6 @@ whether that user is registered.
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
 format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.send_to_device`, and other optional fields.
 
-For end-to-end encryption the bot relies on the Matrix Client-Server API
-endpoints `POST /_matrix/client/v3/keys/upload`, `POST /_matrix/client/v3/keys/query`
-and `POST /_matrix/client/v3/keys/claim`. These requests are issued automatically
-whenever new keys need to be uploaded or claimed.
 
 The bot checks each room for the `m.room.encryption` state event before sending a message. Messages to encrypted rooms are locally encrypted, while unencrypted rooms receive plain text.
 Example code:

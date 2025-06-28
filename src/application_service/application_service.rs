@@ -103,6 +103,10 @@ struct TransactionRequest {
     /// To-device messages (ignored)
     #[serde(default, rename = "de.sorunome.msc2409.send_to_device")]
     pub send_to_device: Vec<serde_json::Value>,
+    #[serde(default, rename = "org.matrix.msc4190.device_lists")]
+    pub device_lists: Option<serde_json::Value>,
+    #[serde(default, rename = "org.matrix.msc4190.one_time_key_counts")]
+    pub one_time_key_counts: Option<serde_json::Value>,
 }
 
 async fn transactions_handler(
@@ -159,7 +163,15 @@ async fn transactions_handler(
         state_guard.txn_idc_cache.mark_processed(txn_id);
     }
 
-    bot.clone().handle_transaction_events(req.events, req.send_to_device).await;
+    bot
+        .clone()
+        .handle_transaction_events(
+            req.events,
+            req.send_to_device,
+            req.device_lists,
+            req.one_time_key_counts,
+        )
+        .await;
     Ok(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({})),
         StatusCode::OK,

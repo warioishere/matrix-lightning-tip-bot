@@ -15,30 +15,33 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static BOT_CREATED: AtomicBool = AtomicBool::new(false);
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
     as_client: MatrixAsClient,
-    encryption: EncryptionHelper,
+    encryption: Arc<EncryptionHelper>,
     room_encryption: Mutex<HashMap<String, bool>>,
 }
 
 impl MatrixBot {
     pub async fn new(data_layer: DataLayer, lnbits_client: LNBitsClient, config: &Config) -> Self {
-        let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
-        let mut as_client = MatrixAsClient::new(config, data_layer.clone());
-        as_client.load_auth();
-        if !as_client.has_access_token() {
-            as_client.login().await;
+        if BOT_CREATED.swap(true, Ordering::SeqCst) {
+            panic!("MatrixBot initialized multiple times");
         }
-        let encryption = EncryptionHelper::new(&data_layer, config).await;
+        let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
+        let as_client = MatrixAsClient::new(config, data_layer.clone());
+        as_client.create_device().await;
+
+        let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
         let bot = MatrixBot {
             business_logic_context: ctx,
             as_client,
-            encryption,
+            encryption: encryption.clone(),
             room_encryption: Mutex::new(HashMap::new()),
         };
-        bot.encryption.process_outgoing_requests(&bot.as_client).await;
         bot
     }
 
@@ -59,11 +62,20 @@ impl MatrixBot {
         Ok(())
     }
 
-    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, send_to_device: Vec<Value>) {
-        self
-            .encryption
-            .receive_to_device(send_to_device, &self.as_client)
-            .await;
+    pub async fn handle_transaction_events(
+        self: Arc<Self>,
+        events: Vec<Value>,
+        send_to_device: Vec<Value>,
+        device_lists: Option<Value>,
+        otk_counts: Option<Value>,
+    ) {
+        self.encryption.receive_to_device(send_to_device).await;
+        if let Some(lists) = device_lists {
+            self.encryption.receive_device_lists(lists).await;
+        }
+        if let Some(counts) = otk_counts {
+            self.encryption.receive_otk_counts(counts).await;
+        }
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
@@ -95,7 +107,7 @@ impl MatrixBot {
                         }
                         if let Some(body) = self
                             .encryption
-                            .decrypt_event(room_id, &ev, &self.as_client)
+                            .decrypt_event(room_id, &ev)
                             .await
                         {
                             self.clone().handle_message(room_id, sender, &body, None).await;
@@ -240,10 +252,7 @@ impl MatrixBot {
 
     async fn send_message(&self, room_id: &str, body: &str) {
         if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self
-                .encryption
-                .encrypt_text(room_id, body, &self.as_client)
-                .await;
+            let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_text(room_id, body).await;
@@ -254,10 +263,7 @@ impl MatrixBot {
         use crate::matrix_bot::utils::markdown_to_html;
         let html = markdown_to_html(body);
         if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self
-                .encryption
-                .encrypt_html(room_id, body, &html, &self.as_client)
-                .await;
+            let (event_type, content) = self.encryption.encrypt_html(room_id, body, &html).await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_formatted(room_id, body, &html).await;
