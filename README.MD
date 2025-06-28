@@ -79,6 +79,8 @@ as_token: "<app-service-token>"
 hs_token: "<homeserver-token>"
 sender_localpart: "lightning-bot"
 url: "http://localhost:9000"
+de.sorunome.msc2409.push_ephemeral: true
+receive_ephemeral: true
 namespaces:
   users:
     - regex: "@lightning-bot:.*"
@@ -103,8 +105,9 @@ cargo run --bin generate_registration -- \
 ```
 
 The command writes `registration.yaml` with random tokens similar to the
-example above. Register this file with your homeserver and pass the path via
-`--registration-file` when starting the bot.
+example above and already enables ephemeral event support. Register this file
+with your homeserver and pass the path via `--registration-file` when starting
+the bot.
 
 ### Construct a config file
 Construct a file `config.conf` with the following entries. The LNbits API key is
