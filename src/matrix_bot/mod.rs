@@ -32,24 +32,8 @@ impl MatrixBot {
             panic!("MatrixBot initialized multiple times");
         }
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
-        let mut as_client = MatrixAsClient::new(config, data_layer.clone());
-        as_client.load_auth();
-        as_client.ensure_valid_token().await;
-        if !as_client.has_access_token() {
-            for attempt in 1..=3 {
-                as_client.login().await;
-                if as_client.has_access_token() {
-                    break;
-                }
-                if attempt < 3 {
-                    log::warn!("Login attempt {} failed; retrying", attempt);
-                    sleep(Duration::from_secs(2)).await;
-                }
-            }
-            if !as_client.has_access_token() {
-                panic!("Login failed, no access token available");
-            }
-        }
+        let as_client = MatrixAsClient::new(config, data_layer.clone());
+        as_client.create_device().await;
 
         let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
         let bot = MatrixBot {
@@ -58,7 +42,6 @@ impl MatrixBot {
             encryption: encryption.clone(),
             room_encryption: Mutex::new(HashMap::new()),
         };
-        encryption.spawn_sync_loop(bot.as_client.clone());
         bot
     }
 
@@ -79,8 +62,20 @@ impl MatrixBot {
         Ok(())
     }
 
-    pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, send_to_device: Vec<Value>) {
+    pub async fn handle_transaction_events(
+        self: Arc<Self>,
+        events: Vec<Value>,
+        send_to_device: Vec<Value>,
+        device_lists: Option<Value>,
+        otk_counts: Option<Value>,
+    ) {
         self.encryption.receive_to_device(send_to_device).await;
+        if let Some(lists) = device_lists {
+            self.encryption.receive_device_lists(lists).await;
+        }
+        if let Some(counts) = otk_counts {
+            self.encryption.receive_otk_counts(counts).await;
+        }
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {

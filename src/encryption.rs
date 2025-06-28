@@ -160,6 +160,78 @@ impl EncryptionHelper {
         self.data_layer.save_matrix_store(&state, &crypto);
     }
 
+    pub async fn receive_device_lists(&self, lists: serde_json::Value) {
+        use matrix_sdk_crypto::EncryptionSyncChanges;
+        use ruma::{api::client::sync::sync_events::DeviceLists, OneTimeKeyAlgorithm, UInt};
+        use std::collections::BTreeMap;
+
+        let device_lists: DeviceLists = serde_json::from_value(lists).unwrap_or_else(|_| DeviceLists::new());
+        let counts = BTreeMap::<OneTimeKeyAlgorithm, UInt>::new();
+
+        let changes = EncryptionSyncChanges {
+            to_device_events: Vec::new(),
+            changed_devices: &device_lists,
+            one_time_keys_counts: &counts,
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        };
+
+        if let Err(e) = self.machine.receive_sync_changes(changes).await {
+            log::error!("Error processing device lists: {}", e);
+        }
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+    }
+
+    pub async fn receive_otk_counts(&self, counts_json: serde_json::Value) {
+        use matrix_sdk_crypto::EncryptionSyncChanges;
+        use ruma::{api::client::sync::sync_events::DeviceLists, OneTimeKeyAlgorithm, UInt};
+        use std::collections::BTreeMap;
+
+        let mut counts = BTreeMap::<OneTimeKeyAlgorithm, UInt>::new();
+        if let Some(map) = counts_json.as_object() {
+            for (k, v) in map {
+                if let Some(num) = v.as_u64() {
+                    let alg = OneTimeKeyAlgorithm::from(k.as_str());
+                    counts.insert(alg, UInt::from(num as u32));
+                }
+            }
+        }
+        let device_lists = DeviceLists::new();
+
+        let changes = EncryptionSyncChanges {
+            to_device_events: Vec::new(),
+            changed_devices: &device_lists,
+            one_time_keys_counts: &counts,
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        };
+
+        if let Err(e) = self.machine.receive_sync_changes(changes).await {
+            log::error!("Error processing one-time key counts: {}", e);
+        }
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+    }
+
     pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
         use matrix_sdk_crypto::{DecryptionSettings, TrustRequirement};
         use matrix_sdk_crypto::types::events::room::encrypted::EncryptedEvent;
@@ -196,95 +268,4 @@ impl EncryptionHelper {
         None
     }
 
-    pub fn spawn_sync_loop(self: std::sync::Arc<Self>, client: crate::as_client::MatrixAsClient) {
-        use tokio::time::{sleep, Duration};
-        tokio::spawn(async move {
-            let mut failures = 0u32;
-            use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-            loop {
-                let mut ok = true;
-
-                // try uploading keys
-                match self.machine.outgoing_requests().await {
-                    Ok(requests) => {
-                        if let Some(req) = requests.into_iter().find(|r| matches!(r.request(), AnyOutgoingRequest::KeysUpload(_))) {
-                            if let AnyOutgoingRequest::KeysUpload(upload) = req.request() {
-                                match client.keys_upload(upload.clone()).await {
-                                    Some(resp) => {
-                                        if let Err(e) = self.machine.mark_request_as_sent(req.request_id(), &resp).await {
-                                            log::warn!("Failed to mark keys upload as sent: {}", e);
-                                            ok = false;
-                                        }
-                                    }
-                                    None => {
-                                        log::warn!("Failed to upload keys; will retry");
-                                        ok = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to fetch outgoing requests: {}", e);
-                        ok = false;
-                    }
-                }
-
-                // try querying keys
-                match self.machine.outgoing_requests().await {
-                    Ok(requests) => {
-                        if let Some(req) = requests.into_iter().find(|r| matches!(r.request(), AnyOutgoingRequest::KeysQuery(_))) {
-                            if let AnyOutgoingRequest::KeysQuery(query) = req.request() {
-                                let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
-                                req_body.timeout = query.timeout;
-                                req_body.device_keys = query.device_keys.clone();
-                                match client.keys_query(req_body).await {
-                                    Some(resp) => {
-                                        if let Err(e) = self.machine.mark_request_as_sent(req.request_id(), &resp).await {
-                                            log::warn!("Failed to mark keys query as sent: {}", e);
-                                            ok = false;
-                                        }
-                                    }
-                                    None => {
-                                        log::warn!("Failed to query keys; will retry");
-                                        ok = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to fetch outgoing requests: {}", e);
-                        ok = false;
-                    }
-                }
-
-                if let Err(e) = self.machine.store().save().await {
-                    log::warn!("Failed to save crypto store: {}", e);
-                    ok = false;
-                }
-
-                let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-                    .await
-                    .unwrap_or_default();
-                let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-                    .await
-                    .unwrap_or_default();
-                self.data_layer.save_matrix_store(&state, &crypto);
-
-                if ok {
-                    failures = 0;
-                } else {
-                    failures = failures.saturating_add(1);
-                    log::warn!("Encryption sync attempt failed");
-                    if failures == 3 {
-                        log::error!(
-                            "Encryption sync failed 3 times in a row. Will keep retrying every 2s."
-                        );
-                    }
-                }
-                sleep(Duration::from_secs(2)).await;
-            }
-        });
-    }
 }
