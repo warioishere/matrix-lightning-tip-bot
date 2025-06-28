@@ -11,6 +11,8 @@ use url::Url;
 use uuid::Uuid;
 use urlencoding::encode;
 
+pub const DEVICE_ID: &str = "ASDEVICE";
+
 #[derive(Clone)]
 pub struct MatrixAsClient {
     homeserver: String,
@@ -19,6 +21,7 @@ pub struct MatrixAsClient {
     http: Client,
     dm_rooms: Arc<Mutex<HashMap<String, String>>>,
     data_layer: DataLayer,
+    device_id: String,
 }
 
 impl MatrixAsClient {
@@ -37,6 +40,7 @@ impl MatrixAsClient {
             http: Client::new(),
             dm_rooms: Arc::new(Mutex::new(HashMap::new())),
             data_layer,
+            device_id: DEVICE_ID.to_owned(),
         }
     }
 
@@ -93,6 +97,7 @@ impl MatrixAsClient {
         vec![
             ("user_id", self.user_id.clone()),
             ("access_token", self.as_token.clone()),
+            ("device_id", self.device_id.clone()),
         ]
     }
 
@@ -313,12 +318,11 @@ impl MatrixAsClient {
     pub async fn keys_upload(
         &self,
         request: upload_keys::v3::Request,
-        device_id: Option<&str>,
     ) -> Option<upload_keys::v3::Response> {
         use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
         use ruma::{OwnedUserId, UserId};
         let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
-        let mut http_req = request
+        let http_req = request
             .try_into_http_request_with_user_id::<Vec<u8>>(
                 &self.homeserver,
                 SendAccessToken::Appservice(&self.as_token),
@@ -326,12 +330,6 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
-        if let Some(id) = device_id {
-            let mut uri = http_req.uri().to_string();
-            let sep = if uri.contains('?') { '&' } else { '?' };
-            uri.push_str(&format!("{sep}device_id={}", encode(id)));
-            *http_req.uri_mut() = uri.parse().ok()?;
-        }
         let response = self.send_request(http_req).await?;
         upload_keys::v3::Response::try_from_http_response(response).ok()
     }

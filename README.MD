@@ -124,6 +124,8 @@ used for creating lightning addresses without the bearer token:
 ```
 
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
+The bot always uses a fixed device ID `ASDEVICE` when interacting with the Matrix
+Client-Server API so no device configuration is required.
 If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
 using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
 

@@ -37,7 +37,7 @@ impl EncryptionHelper {
         )
         .parse()
         .unwrap();
-        let device_id: OwnedDeviceId = "ASDEVICE".into();
+        let device_id: OwnedDeviceId = crate::as_client::DEVICE_ID.into();
 
         let dir = tempfile::tempdir().expect("create temp dir");
 
@@ -219,8 +219,7 @@ impl EncryptionHelper {
             for req in requests {
                 match req.request() {
                     AnyOutgoingRequest::KeysUpload(upload) => {
-                        let device_id = Some(self.machine.device_id().as_str());
-                        match client.keys_upload(upload.clone(), device_id).await {
+                        match client.keys_upload(upload.clone()).await {
                             Some(response) => {
                                 if let Err(e) = self
                                     .machine
