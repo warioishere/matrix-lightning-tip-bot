@@ -58,7 +58,7 @@ impl LNBitsId {
 #[diesel(check_for_backend(Sqlite))]
 pub struct LnAddress {
     pub id: Option<i32>,
-    pub matrix_id: Option<String>,
+    pub matrix_id: String,
     pub ln_address: String,
     pub lnurl: String,
     pub date_created: String,
@@ -104,7 +104,7 @@ pub struct NewMatrixStore<'a> {
 #[diesel(primary_key(matrix_id))]
 #[diesel(check_for_backend(Sqlite))]
 pub struct DmRoom {
-    pub matrix_id: String,
+    pub matrix_id: Option<String>,
     pub room_id: String,
 }
 
