@@ -330,6 +330,12 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         upload_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -349,6 +355,12 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         get_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -368,6 +380,12 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
+        let (mut parts, body) = http_req.into_parts();
+        let mut uri = parts.uri.to_string();
+        let sep = if uri.contains('?') { '&' } else { '?' };
+        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
+        parts.uri = uri.parse().ok()?;
+        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         claim_keys::v3::Response::try_from_http_response(response).ok()
     }
