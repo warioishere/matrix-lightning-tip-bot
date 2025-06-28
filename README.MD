@@ -119,12 +119,10 @@ used for creating lightning addresses without the bearer token:
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
 --database-url=/db/db.db                               # The absolute path to your generated db.
---store-path=/store                                   # Temporary directory for Matrix client cache (defaults to parent of --database-url)
 --avatar-path=mxc://your.server/abcdef               # Optional avatar URL for the bot
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
-`--store-path` only controls where temporary cache files are placed.
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
 If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
 using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
