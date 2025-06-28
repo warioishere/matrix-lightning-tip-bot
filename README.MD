@@ -168,6 +168,11 @@ whether that user is registered.
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
 format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.send_to_device`, and other optional fields.
 
+For end-to-end encryption the bot relies on the Matrix Client-Server API
+endpoints `POST /_matrix/client/v3/keys/upload`, `POST /_matrix/client/v3/keys/query`
+and `POST /_matrix/client/v3/keys/claim`. These requests are issued automatically
+whenever new keys need to be uploaded or claimed.
+
 The bot checks each room for the `m.room.encryption` state event before sending a message. Messages to encrypted rooms are locally encrypted, while unencrypted rooms receive plain text.
 Example code:
 

@@ -203,18 +203,35 @@ impl EncryptionHelper {
 
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-        
-        if let Ok(requests) = self.machine.outgoing_requests().await {
+
+        loop {
+            let requests = match self.machine.outgoing_requests().await {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to fetch outgoing requests: {}", e);
+                    break;
+                }
+            };
+
+            if requests.is_empty() {
+                break;
+            }
+
             for req in requests {
                 match req.request() {
                     AnyOutgoingRequest::KeysUpload(upload) => {
-                        if let Some(response) = client.keys_upload(upload.clone(), None).await {
-                            if let Err(e) = self
-                                .machine
-                                .mark_request_as_sent(req.request_id(), &response)
-                                .await
-                            {
-                                log::error!("Failed to mark keys upload as sent: {}", e);
+                        match client.keys_upload(upload.clone(), None).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys upload as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to upload keys; will retry");
                             }
                         }
                     }
@@ -222,24 +239,34 @@ impl EncryptionHelper {
                         let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
                         req_body.timeout = query.timeout;
                         req_body.device_keys = query.device_keys.clone();
-                        if let Some(response) = client.keys_query(req_body).await {
-                            if let Err(e) = self
-                                .machine
-                                .mark_request_as_sent(req.request_id(), &response)
-                                .await
-                            {
-                                log::error!("Failed to mark keys query as sent: {}", e);
+                        match client.keys_query(req_body).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys query as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to query keys; will retry");
                             }
                         }
                     }
                     AnyOutgoingRequest::KeysClaim(claim) => {
-                        if let Some(response) = client.keys_claim(claim.clone()).await {
-                            if let Err(e) = self
-                                .machine
-                                .mark_request_as_sent(req.request_id(), &response)
-                                .await
-                            {
-                                log::error!("Failed to mark keys claim as sent: {}", e);
+                        match client.keys_claim(claim.clone()).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys claim as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to claim keys; will retry");
                             }
                         }
                     }
