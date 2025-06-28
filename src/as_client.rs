@@ -21,6 +21,7 @@ pub struct MatrixAsClient {
     http: Client,
     dm_rooms: Arc<Mutex<HashMap<String, String>>>,
     data_layer: DataLayer,
+    #[allow(dead_code)]
     device_id: String,
 }
 
@@ -94,10 +95,10 @@ impl MatrixAsClient {
     }
 
     fn auth_query(&self) -> Vec<(&str, String)> {
+        // Application Service API darf keinen device_id Parameter mitsenden.
         vec![
             ("user_id", self.user_id.clone()),
             ("access_token", self.as_token.clone()),
-            ("device_id", self.device_id.clone()),
         ]
     }
 
@@ -319,6 +320,7 @@ impl MatrixAsClient {
         &self,
         request: upload_keys::v3::Request,
     ) -> Option<upload_keys::v3::Response> {
+        // Application Service API darf keinen device_id Parameter mitsenden.
         use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
         use ruma::{OwnedUserId, UserId};
         let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
@@ -330,12 +332,6 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
-        let (mut parts, body) = http_req.into_parts();
-        let mut uri = parts.uri.to_string();
-        let sep = if uri.contains('?') { '&' } else { '?' };
-        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
-        parts.uri = uri.parse().ok()?;
-        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         upload_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -344,6 +340,7 @@ impl MatrixAsClient {
         &self,
         request: get_keys::v3::Request,
     ) -> Option<get_keys::v3::Response> {
+        // Application Service API darf keinen device_id Parameter mitsenden.
         use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
         use ruma::{OwnedUserId, UserId};
         let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
@@ -355,12 +352,6 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
-        let (mut parts, body) = http_req.into_parts();
-        let mut uri = parts.uri.to_string();
-        let sep = if uri.contains('?') { '&' } else { '?' };
-        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
-        parts.uri = uri.parse().ok()?;
-        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         get_keys::v3::Response::try_from_http_response(response).ok()
     }
@@ -369,6 +360,7 @@ impl MatrixAsClient {
         &self,
         request: claim_keys::v3::Request,
     ) -> Option<claim_keys::v3::Response> {
+        // Application Service API darf keinen device_id Parameter mitsenden.
         use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
         use ruma::{OwnedUserId, UserId};
         let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
@@ -380,12 +372,6 @@ impl MatrixAsClient {
                 &[MatrixVersion::V1_1],
             )
             .ok()?;
-        let (mut parts, body) = http_req.into_parts();
-        let mut uri = parts.uri.to_string();
-        let sep = if uri.contains('?') { '&' } else { '?' };
-        uri.push_str(&format!("{sep}device_id={}", DEVICE_ID));
-        parts.uri = uri.parse().ok()?;
-        let http_req = ruma::exports::http::Request::from_parts(parts, body);
         let response = self.send_request(http_req).await?;
         claim_keys::v3::Response::try_from_http_response(response).ok()
     }
