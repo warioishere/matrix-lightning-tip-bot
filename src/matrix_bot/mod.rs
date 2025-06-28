@@ -35,8 +35,21 @@ impl MatrixBot {
         let mut as_client = MatrixAsClient::new(config, data_layer.clone());
         as_client.load_auth();
         if !as_client.has_access_token() {
-            as_client.login().await;
+            for attempt in 1..=3 {
+                as_client.login().await;
+                if as_client.has_access_token() {
+                    break;
+                }
+                if attempt < 3 {
+                    log::warn!("Login attempt {} failed; retrying", attempt);
+                    sleep(Duration::from_secs(2)).await;
+                }
+            }
+            if !as_client.has_access_token() {
+                panic!("Login failed, no access token available");
+            }
         }
+
         let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
         let bot = MatrixBot {
             business_logic_context: ctx,
