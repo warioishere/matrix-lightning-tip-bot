@@ -56,7 +56,7 @@ impl EncryptionHelper {
         EncryptionHelper { machine, data_layer: data_layer.clone(), dir }
     }
 
-    pub async fn encrypt_text(&self, room_id: &str, body: &str, client: &crate::as_client::MatrixAsClient) -> (String, serde_json::Value) {
+    pub async fn encrypt_text(&self, room_id: &str, body: &str) -> (String, serde_json::Value) {
         use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
 
         let room_id: OwnedRoomId = room_id.parse().unwrap();
@@ -74,7 +74,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.process_outgoing_requests(client).await;
 
         // Persist store
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -91,7 +90,7 @@ impl EncryptionHelper {
         )
     }
 
-    pub async fn encrypt_html(&self, room_id: &str, body: &str, html: &str, client: &crate::as_client::MatrixAsClient) -> (String, serde_json::Value) {
+    pub async fn encrypt_html(&self, room_id: &str, body: &str, html: &str) -> (String, serde_json::Value) {
         use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
 
         let room_id: OwnedRoomId = room_id.parse().unwrap();
@@ -109,7 +108,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.process_outgoing_requests(client).await;
 
         // Persist store
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -126,7 +124,7 @@ impl EncryptionHelper {
         )
     }
 
-    pub async fn receive_to_device(&self, events: Vec<serde_json::Value>, client: &crate::as_client::MatrixAsClient) {
+    pub async fn receive_to_device(&self, events: Vec<serde_json::Value>) {
         use matrix_sdk_crypto::{EncryptionSyncChanges};
         use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
         use std::collections::BTreeMap;
@@ -151,7 +149,6 @@ impl EncryptionHelper {
             if let Err(e) = self.machine.store().save().await {
                 log::error!("Failed to save crypto store: {}", e);
             }
-            self.process_outgoing_requests(client).await;
         }
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -163,7 +160,7 @@ impl EncryptionHelper {
         self.data_layer.save_matrix_store(&state, &crypto);
     }
 
-    pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value, client: &crate::as_client::MatrixAsClient) -> Option<String> {
+    pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
         use matrix_sdk_crypto::{DecryptionSettings, TrustRequirement};
         use matrix_sdk_crypto::types::events::room::encrypted::EncryptedEvent;
         use ruma::{serde::Raw, events::{AnyMessageLikeEvent, MessageLikeEvent, room::message::MessageType}};
@@ -181,7 +178,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.process_outgoing_requests(client).await;
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
             .await
@@ -200,14 +196,19 @@ impl EncryptionHelper {
         None
     }
 
-    pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+    pub async fn process_outgoing_requests_once(
+        &self,
+        client: &crate::as_client::MatrixAsClient,
+    ) -> Result<(), ()> {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
 
+        let mut ok = true;
         loop {
             let requests = match self.machine.outgoing_requests().await {
                 Ok(r) => r,
                 Err(e) => {
-                    log::error!("Failed to fetch outgoing requests: {}", e);
+                    log::warn!("Failed to fetch outgoing requests: {}", e);
+                    ok = false;
                     break;
                 }
             };
@@ -226,11 +227,13 @@ impl EncryptionHelper {
                                     .mark_request_as_sent(req.request_id(), &response)
                                     .await
                                 {
-                                    log::error!("Failed to mark keys upload as sent: {}", e);
+                                    log::warn!("Failed to mark keys upload as sent: {}", e);
+                                    ok = false;
                                 }
                             }
                             None => {
                                 log::warn!("Failed to upload keys; will retry");
+                                ok = false;
                             }
                         }
                     }
@@ -245,11 +248,13 @@ impl EncryptionHelper {
                                     .mark_request_as_sent(req.request_id(), &response)
                                     .await
                                 {
-                                    log::error!("Failed to mark keys query as sent: {}", e);
+                                    log::warn!("Failed to mark keys query as sent: {}", e);
+                                    ok = false;
                                 }
                             }
                             None => {
                                 log::warn!("Failed to query keys; will retry");
+                                ok = false;
                             }
                         }
                     }
@@ -261,11 +266,13 @@ impl EncryptionHelper {
                                     .mark_request_as_sent(req.request_id(), &response)
                                     .await
                                 {
-                                    log::error!("Failed to mark keys claim as sent: {}", e);
+                                    log::warn!("Failed to mark keys claim as sent: {}", e);
+                                    ok = false;
                                 }
                             }
                             None => {
                                 log::warn!("Failed to claim keys; will retry");
+                                ok = false;
                             }
                         }
                     }
@@ -275,7 +282,8 @@ impl EncryptionHelper {
         }
 
         if let Err(e) = self.machine.store().save().await {
-            log::error!("Failed to save crypto store: {}", e);
+            log::warn!("Failed to save crypto store: {}", e);
+            ok = false;
         }
 
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -285,5 +293,28 @@ impl EncryptionHelper {
             .await
             .unwrap_or_default();
         self.data_layer.save_matrix_store(&state, &crypto);
+        if ok { Ok(()) } else { Err(()) }
+    }
+
+    pub fn spawn_sync_loop(self: std::sync::Arc<Self>, client: crate::as_client::MatrixAsClient) {
+        use tokio::time::{sleep, Duration};
+        tokio::spawn(async move {
+            let mut failures = 0u32;
+            loop {
+                match self.process_outgoing_requests_once(&client).await {
+                    Ok(_) => failures = 0,
+                    Err(_) => {
+                        failures = failures.saturating_add(1);
+                        log::warn!("Encryption sync attempt failed");
+                        if failures == 3 {
+                            log::error!(
+                                "Encryption sync failed 3 times in a row. Will keep retrying every 2s."
+                            );
+                        }
+                    }
+                }
+                sleep(Duration::from_secs(2)).await;
+            }
+        });
     }
 }
