@@ -200,33 +200,18 @@ impl EncryptionHelper {
         use tokio::time::{sleep, Duration};
         tokio::spawn(async move {
             let mut failures = 0u32;
+            use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
             loop {
-                use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
                 let mut ok = true;
-                loop {
-                    let requests = match self.machine.outgoing_requests().await {
-                        Ok(r) => r,
-                        Err(e) => {
-                            log::warn!("Failed to fetch outgoing requests: {}", e);
-                            ok = false;
-                            break;
-                        }
-                    };
 
-                    if requests.is_empty() {
-                        break;
-                    }
-
-                    for req in requests {
-                        match req.request() {
-                            AnyOutgoingRequest::KeysUpload(upload) => {
+                // try uploading keys
+                match self.machine.outgoing_requests().await {
+                    Ok(requests) => {
+                        if let Some(req) = requests.into_iter().find(|r| matches!(r.request(), AnyOutgoingRequest::KeysUpload(_))) {
+                            if let AnyOutgoingRequest::KeysUpload(upload) = req.request() {
                                 match client.keys_upload(upload.clone()).await {
-                                    Some(response) => {
-                                        if let Err(e) = self
-                                            .machine
-                                            .mark_request_as_sent(req.request_id(), &response)
-                                            .await
-                                        {
+                                    Some(resp) => {
+                                        if let Err(e) = self.machine.mark_request_as_sent(req.request_id(), &resp).await {
                                             log::warn!("Failed to mark keys upload as sent: {}", e);
                                             ok = false;
                                         }
@@ -237,17 +222,25 @@ impl EncryptionHelper {
                                     }
                                 }
                             }
-                            AnyOutgoingRequest::KeysQuery(query) => {
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to fetch outgoing requests: {}", e);
+                        ok = false;
+                    }
+                }
+
+                // try querying keys
+                match self.machine.outgoing_requests().await {
+                    Ok(requests) => {
+                        if let Some(req) = requests.into_iter().find(|r| matches!(r.request(), AnyOutgoingRequest::KeysQuery(_))) {
+                            if let AnyOutgoingRequest::KeysQuery(query) = req.request() {
                                 let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
                                 req_body.timeout = query.timeout;
                                 req_body.device_keys = query.device_keys.clone();
                                 match client.keys_query(req_body).await {
-                                    Some(response) => {
-                                        if let Err(e) = self
-                                            .machine
-                                            .mark_request_as_sent(req.request_id(), &response)
-                                            .await
-                                        {
+                                    Some(resp) => {
+                                        if let Err(e) = self.machine.mark_request_as_sent(req.request_id(), &resp).await {
                                             log::warn!("Failed to mark keys query as sent: {}", e);
                                             ok = false;
                                         }
@@ -258,26 +251,11 @@ impl EncryptionHelper {
                                     }
                                 }
                             }
-                            AnyOutgoingRequest::KeysClaim(claim) => {
-                                match client.keys_claim(claim.clone()).await {
-                                    Some(response) => {
-                                        if let Err(e) = self
-                                            .machine
-                                            .mark_request_as_sent(req.request_id(), &response)
-                                            .await
-                                        {
-                                            log::warn!("Failed to mark keys claim as sent: {}", e);
-                                            ok = false;
-                                        }
-                                    }
-                                    None => {
-                                        log::warn!("Failed to claim keys; will retry");
-                                        ok = false;
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to fetch outgoing requests: {}", e);
+                        ok = false;
                     }
                 }
 
