@@ -1,5 +1,7 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use ruma::api::client::keys::{claim_keys, get_keys, upload_keys};
+use ruma::api::IncomingResponse;
 use crate::config::config::Config;
 use crate::data_layer::data_layer::DataLayer;
 use std::collections::HashMap;
@@ -230,6 +232,34 @@ impl MatrixAsClient {
         }
     }
 
+    async fn send_request(
+        &self,
+        request: ruma::exports::http::Request<Vec<u8>>,
+    ) -> Option<ruma::exports::http::Response<Vec<u8>>> {
+        use reqwest::header::{HeaderName, HeaderValue};
+        use reqwest::Method;
+
+        let method = Method::from_bytes(request.method().as_str().as_bytes()).ok()?;
+        let url = request.uri().to_string();
+        let mut builder = self.http.request(method, url);
+        for (name, value) in request.headers().iter() {
+            let hname = HeaderName::from_bytes(name.as_str().as_bytes()).ok()?;
+            let hvalue = HeaderValue::from_bytes(value.as_bytes()).ok()?;
+            builder = builder.header(hname, hvalue);
+        }
+        let resp = builder.body(request.body().clone()).send().await.ok()?;
+        let status = resp.status();
+        let status_code = ruma::exports::http::StatusCode::from_u16(status.as_u16()).ok()?;
+        let mut resp_builder = ruma::exports::http::Response::builder().status(status_code);
+        for (name, value) in resp.headers() {
+            let hname = ruma::exports::http::header::HeaderName::from_bytes(name.as_str().as_bytes()).ok()?;
+            let hvalue = ruma::exports::http::header::HeaderValue::from_bytes(value.as_bytes()).ok()?;
+            resp_builder = resp_builder.header(hname, hvalue);
+        }
+        let bytes = resp.bytes().await.ok()?;
+        resp_builder.body(bytes.to_vec()).ok()
+    }
+
     async fn create_dm_room(&self, user_id: &str) -> Option<String> {
         {
             let map = self.dm_rooms.lock().await;
@@ -279,45 +309,67 @@ impl MatrixAsClient {
         }
     }
 
-    pub async fn keys_upload(&self, body: serde_json::Value) -> Option<serde_json::Value> {
-        let url = format!("{}/_matrix/client/v3/keys/upload", self.homeserver);
-        self.http
-            .post(url)
-            .query(&self.auth_query())
-            .json(&body)
-            .send()
-            .await
-            .ok()?
-            .json::<serde_json::Value>()
-            .await
-            .ok()
+    pub async fn keys_upload(
+        &self,
+        request: upload_keys::v3::Request,
+        device_id: Option<&str>,
+    ) -> Option<upload_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let mut http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        if let Some(id) = device_id {
+            let mut uri = http_req.uri().to_string();
+            let sep = if uri.contains('?') { '&' } else { '?' };
+            uri.push_str(&format!("{sep}device_id={}", encode(id)));
+            *http_req.uri_mut() = uri.parse().ok()?;
+        }
+        let response = self.send_request(http_req).await?;
+        upload_keys::v3::Response::try_from_http_response(response).ok()
     }
 
-    pub async fn keys_query(&self, body: serde_json::Value) -> Option<serde_json::Value> {
-        let url = format!("{}/_matrix/client/v3/keys/query", self.homeserver);
-        self.http
-            .post(url)
-            .query(&self.auth_query())
-            .json(&body)
-            .send()
-            .await
-            .ok()?
-            .json::<serde_json::Value>()
-            .await
-            .ok()
+    pub async fn keys_query(
+        &self,
+        request: get_keys::v3::Request,
+    ) -> Option<get_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let response = self.send_request(http_req).await?;
+        get_keys::v3::Response::try_from_http_response(response).ok()
     }
 
-    pub async fn keys_claim(&self, body: serde_json::Value) -> Option<serde_json::Value> {
-        let url = format!("{}/_matrix/client/v3/keys/claim", self.homeserver);
-        self.http
-            .post(url)
-            .query(&self.auth_query())
-            .json(&body)
-            .send()
-            .await
-            .ok()?
-            .json::<serde_json::Value>()
-            .await
-            .ok()
+    pub async fn keys_claim(
+        &self,
+        request: claim_keys::v3::Request,
+    ) -> Option<claim_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let response = self.send_request(http_req).await?;
+        claim_keys::v3::Response::try_from_http_response(response).ok()
     }
 }

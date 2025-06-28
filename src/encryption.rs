@@ -203,33 +203,15 @@ impl EncryptionHelper {
 
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-        use ruma::api::{
-            client::keys::{
-            claim_keys::v3::Response as KeysClaimResponse,
-            get_keys::v3::Response as KeysQueryResponse,
-            upload_keys::v3::Response as KeysUploadResponse,
-        },
-            SendAccessToken, MatrixVersion, OutgoingRequest,
-        };
         
         if let Ok(requests) = self.machine.outgoing_requests().await {
             for req in requests {
                 match req.request() {
                     AnyOutgoingRequest::KeysUpload(upload) => {
-                        let http_req = upload
-                            .clone()
-                            .try_into_http_request::<Vec<u8>>(
-                                "",
-                                SendAccessToken::None,
-                                &[MatrixVersion::V1_1],
-                            )
-                            .expect("convert to http request");
-                        let body: serde_json::Value =
-                            serde_json::from_slice(http_req.body()).expect("parse body");
-                        if client.keys_upload(body).await.is_some() {
+                        if let Some(response) = client.keys_upload(upload.clone(), None).await {
                             if let Err(e) = self
                                 .machine
-                                .mark_request_as_sent(req.request_id(), &KeysUploadResponse::new(std::collections::BTreeMap::new()))
+                                .mark_request_as_sent(req.request_id(), &response)
                                 .await
                             {
                                 log::error!("Failed to mark keys upload as sent: {}", e);
@@ -237,26 +219,13 @@ impl EncryptionHelper {
                         }
                     }
                     AnyOutgoingRequest::KeysQuery(query) => {
-                        let mut device_keys = serde_json::Map::new();
-                        for (user, devices) in &query.device_keys {
-                            device_keys.insert(
-                                user.to_string(),
-                                serde_json::Value::Array(
-                                    devices
-                                        .iter()
-                                        .map(|d| serde_json::Value::String(d.to_string()))
-                                        .collect(),
-                                ),
-                            );
-                        }
-                        let body = serde_json::json!({
-                            "timeout": query.timeout.map(|t| t.as_millis() as u64),
-                            "device_keys": device_keys,
-                        });
-                        if client.keys_query(body).await.is_some() {
+                        let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
+                        req_body.timeout = query.timeout;
+                        req_body.device_keys = query.device_keys.clone();
+                        if let Some(response) = client.keys_query(req_body).await {
                             if let Err(e) = self
                                 .machine
-                                .mark_request_as_sent(req.request_id(), &KeysQueryResponse::new())
+                                .mark_request_as_sent(req.request_id(), &response)
                                 .await
                             {
                                 log::error!("Failed to mark keys query as sent: {}", e);
@@ -264,20 +233,10 @@ impl EncryptionHelper {
                         }
                     }
                     AnyOutgoingRequest::KeysClaim(claim) => {
-                        let http_req = claim
-                            .clone()
-                            .try_into_http_request::<Vec<u8>>(
-                                "",
-                                SendAccessToken::None,
-                                &[MatrixVersion::V1_1],
-                            )
-                            .expect("convert to http request");
-                        let body: serde_json::Value =
-                            serde_json::from_slice(http_req.body()).expect("parse body");
-                        if client.keys_claim(body).await.is_some() {
+                        if let Some(response) = client.keys_claim(claim.clone()).await {
                             if let Err(e) = self
                                 .machine
-                                .mark_request_as_sent(req.request_id(), &KeysClaimResponse::new(std::collections::BTreeMap::new()))
+                                .mark_request_as_sent(req.request_id(), &response)
                                 .await
                             {
                                 log::error!("Failed to mark keys claim as sent: {}", e);
