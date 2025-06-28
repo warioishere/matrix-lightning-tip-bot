@@ -278,4 +278,46 @@ impl MatrixAsClient {
             self.send_text(&room_id, body).await;
         }
     }
+
+    pub async fn keys_upload(&self, body: serde_json::Value) -> Option<serde_json::Value> {
+        let url = format!("{}/_matrix/client/v3/keys/upload", self.homeserver);
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .json(&body)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+    }
+
+    pub async fn keys_query(&self, body: serde_json::Value) -> Option<serde_json::Value> {
+        let url = format!("{}/_matrix/client/v3/keys/query", self.homeserver);
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .json(&body)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+    }
+
+    pub async fn keys_claim(&self, body: serde_json::Value) -> Option<serde_json::Value> {
+        let url = format!("{}/_matrix/client/v3/keys/claim", self.homeserver);
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .json(&body)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+    }
 }

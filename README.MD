@@ -182,7 +182,10 @@ async fn room_is_encrypted(&self, room_id: &str) -> bool {
 
 async fn send_message(&self, room_id: &str, body: &str) {
     if self.room_is_encrypted(room_id).await {
-        let (ty, content) = self.encryption.encrypt_text(room_id, body).await;
+        let (ty, content) = self
+            .encryption
+            .encrypt_text(room_id, body, &self.as_client)
+            .await;
         self.as_client.send_raw(room_id, &ty, content).await;
     } else {
         self.as_client.send_text(room_id, body).await;
@@ -204,7 +207,10 @@ async fn room_is_encrypted(&self, room_id: &str) -> bool {
 
 async fn send_message(&self, room_id: &str, body: &str) {
     if self.room_is_encrypted(room_id).await {
-        let (ty, content) = self.encryption.encrypt_text(room_id, body).await;
+        let (ty, content) = self
+            .encryption
+            .encrypt_text(room_id, body, &self.as_client)
+            .await;
         self.as_client.send_raw(room_id, &ty, content).await;
     } else {
         self.as_client.send_text(room_id, body).await;

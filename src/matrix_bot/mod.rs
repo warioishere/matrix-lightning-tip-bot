@@ -28,12 +28,14 @@ impl MatrixBot {
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let as_client = MatrixAsClient::new(config, data_layer.clone());
         let encryption = EncryptionHelper::new(&data_layer, config).await;
-        MatrixBot {
+        let bot = MatrixBot {
             business_logic_context: ctx,
             as_client,
             encryption,
             room_encryption: Mutex::new(HashMap::new()),
-        }
+        };
+        bot.encryption.process_outgoing_requests(&bot.as_client).await;
+        bot
     }
 
     pub async fn init(&self) {
@@ -53,7 +55,10 @@ impl MatrixBot {
     }
 
     pub async fn handle_transaction_events(self: Arc<Self>, events: Vec<Value>, send_to_device: Vec<Value>) {
-        self.encryption.receive_to_device(send_to_device).await;
+        self
+            .encryption
+            .receive_to_device(send_to_device, &self.as_client)
+            .await;
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
@@ -83,7 +88,11 @@ impl MatrixBot {
                         if sender == self.as_client.user_id() {
                             continue;
                         }
-                        if let Some(body) = self.encryption.decrypt_event(room_id, &ev).await {
+                        if let Some(body) = self
+                            .encryption
+                            .decrypt_event(room_id, &ev, &self.as_client)
+                            .await
+                        {
                             self.clone().handle_message(room_id, sender, &body, None).await;
                         }
                     }
@@ -221,7 +230,10 @@ impl MatrixBot {
 
     async fn send_message(&self, room_id: &str, body: &str) {
         if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
+            let (event_type, content) = self
+                .encryption
+                .encrypt_text(room_id, body, &self.as_client)
+                .await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_text(room_id, body).await;
@@ -232,7 +244,10 @@ impl MatrixBot {
         use crate::matrix_bot::utils::markdown_to_html;
         let html = markdown_to_html(body);
         if self.room_is_encrypted(room_id).await {
-            let (event_type, content) = self.encryption.encrypt_html(room_id, body, &html).await;
+            let (event_type, content) = self
+                .encryption
+                .encrypt_html(room_id, body, &html, &self.as_client)
+                .await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
             self.as_client.send_formatted(room_id, body, &html).await;
