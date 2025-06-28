@@ -99,18 +99,26 @@ pub struct NewMatrixStore<'a> {
     pub crypto: &'a [u8],
 }
 
-#[derive(Debug, Queryable, Identifiable, Selectable)]
-#[diesel(table_name = dm_rooms)]
-#[diesel(primary_key(matrix_id))]
-#[diesel(check_for_backend(Sqlite))]
-pub struct DmRoom {
-    pub matrix_id: String,
-    pub room_id: String,
-}
-
 #[derive(Insertable)]
 #[diesel(table_name = dm_rooms)]
 pub struct NewDmRoom<'a> {
     pub matrix_id: &'a str,
     pub room_id: &'a str,
+}
+
+#[derive(Debug, Queryable, Identifiable, Selectable)]
+#[diesel(table_name = client_auth)]
+#[diesel(check_for_backend(Sqlite))]
+pub struct ClientAuth {
+    pub id: Option<i32>,
+    pub access_token: String,
+    pub device_id: String,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = client_auth)]
+pub struct NewClientAuth<'a> {
+    pub id: i32,
+    pub access_token: &'a str,
+    pub device_id: &'a str,
 }

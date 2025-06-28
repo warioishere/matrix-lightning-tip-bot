@@ -10,6 +10,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    client_auth (id) {
+        id -> Nullable<Integer>,
+        access_token -> Text,
+        device_id -> Text,
+    }
+}
+
+diesel::table! {
     ln_addresses (id) {
         id -> Nullable<Integer>,
         matrix_id -> Text,

@@ -26,7 +26,11 @@ pub struct MatrixBot {
 impl MatrixBot {
     pub async fn new(data_layer: DataLayer, lnbits_client: LNBitsClient, config: &Config) -> Self {
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
-        let as_client = MatrixAsClient::new(config, data_layer.clone());
+        let mut as_client = MatrixAsClient::new(config, data_layer.clone());
+        as_client.load_auth();
+        if !as_client.has_access_token() {
+            as_client.login().await;
+        }
         let encryption = EncryptionHelper::new(&data_layer, config).await;
         let bot = MatrixBot {
             business_logic_context: ctx,
@@ -105,11 +109,12 @@ impl MatrixBot {
                         .and_then(|m| m.as_str())
                         == Some("invite")
                     {
-                        if let (Some(room_id), Some(state_key)) = (
+                        if let (Some(room_id), Some(state_key), Some(inviter)) = (
                             ev.get("room_id").and_then(|r| r.as_str()),
                             ev.get("state_key").and_then(|s| s.as_str()),
+                            ev.get("sender").and_then(|s| s.as_str()),
                         ) {
-                            if state_key == self.as_client.user_id() {
+                            if state_key == self.as_client.user_id() && self.is_user_allowed(inviter) {
                                 self.as_client.accept_invite(room_id).await;
                                 let welcome = self.business_logic_context.get_help_content();
                                 self.clone().send_markdown_message(room_id, &welcome).await;
@@ -123,6 +128,10 @@ impl MatrixBot {
     }
 
     async fn handle_message(self: Arc<Self>, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
+        if !self.is_user_allowed(sender) {
+            log::info!("Ignoring message from disallowed server: {}", sender);
+            return;
+        }
         match self.extract_command(sender, room_id, body, reply_event).await {
             Ok(cmd) => {
                 if let Some(cmd) = cmd {
@@ -304,7 +313,32 @@ impl MatrixBot {
         });
     }
 
-    fn bot_name(&self) -> String {
-        self.business_logic_context.config().registration.sender_localpart.clone()
+
+    fn is_user_allowed(&self, user_id: &str) -> bool {
+        use ruma::UserId;
+        use url::Url;
+
+        if let Some(servers) = &self.business_logic_context.config().allowed_matrix_servers {
+            if let Ok(uid) = UserId::parse(user_id) {
+                let server = uid.server_name().to_string();
+                if let Ok(url) = Url::parse(&self.business_logic_context.config().matrix_server) {
+                    if url.host_str() == Some(server.as_str()) {
+                        return true;
+                    }
+                }
+                for s in servers {
+                    if let Ok(url) = Url::parse(s) {
+                        if url.host_str() == Some(server.as_str()) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            } else {
+                false
+            }
+        } else {
+            true
+        }
     }
 }

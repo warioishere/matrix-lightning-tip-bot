@@ -52,10 +52,6 @@ impl BusinessLogicContext {
         &self.config
     }
 
-    pub fn data_layer(&self) -> &DataLayer {
-        &self.data_layer
-    }
-
     pub fn get_help_content(&self) -> String {
         format!(
             "Matrix-Lightning-Tip-Bot {}\n{}",
@@ -133,10 +129,6 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_fiat_conversion(sender.as_str(), amount as f64, currency.as_str(), false).await,
                       "Could not process SatsToFiat")
             },
-            _ => {
-                log::error!("Encountered unsuported command {:?} ..", command);
-                bail!("Could not process: {:?}", command)
-            }
         };
         Ok(command_reply)
     }
