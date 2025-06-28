@@ -17,7 +17,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`
 * **!balance** - Check your balance: `!balance`
 * **!send** - Send funds to a user: `!send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]`
-* **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`
+* **!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]` (includes a QR code)
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
 * **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`
@@ -79,6 +79,8 @@ as_token: "<app-service-token>"
 hs_token: "<homeserver-token>"
 sender_localpart: "lightning-bot"
 url: "http://localhost:9000"
+de.sorunome.msc2409.push_ephemeral: true
+receive_ephemeral: true
 namespaces:
   users:
     - regex: "@lightning-bot:.*"
@@ -103,8 +105,9 @@ cargo run --bin generate_registration -- \
 ```
 
 The command writes `registration.yaml` with random tokens similar to the
-example above. Register this file with your homeserver and pass the path via
-`--registration-file` when starting the bot.
+example above and already enables ephemeral event support. Register this file
+with your homeserver and pass the path via `--registration-file` when starting
+the bot.
 
 ### Construct a config file
 Construct a file `config.conf` with the following entries. The LNbits API key is
@@ -123,7 +126,8 @@ used for creating lightning addresses without the bearer token:
 
 `--store-path` only controls where temporary cache files are placed.
 Encrypted client keys are automatically saved in the database's `matrix_store` table.
-If `--avatar-path` is set, the bot sets its avatar URL to this mxc link at startup.
+If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
+using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
 
 ### Running
 Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.
@@ -151,18 +155,23 @@ sudo docker run -d \
 --lnbits-api-key=xxx
 ```
 
-The bot exposes the Matrix Application Service API at the `url` given in the registration file. The server listens on the port from that URL. Ensure your homeserver posts transactions to the `/` paths defined in the spec.
+The bot exposes the Matrix Application Service API at the `url` given in the registration file. The server listens on the port from that URL. Ensure your homeserver sends transactions using `PUT` requests to the `/` paths defined in the spec.
 Your homeserver **must** be able to reach this address and is responsible for
 pushing events there. Once the registration file is listed under
-`app_service_config_files`, Synapse will POST transactions to
+`app_service_config_files`, Synapse will PUT transactions to
 `/_matrix/app/v1/transactions/{txnId}` at that URL. The bot does not call
 `/sync`; all events are delivered via these transactions. The bot verifies that
 transactions include the correct `access_token` so only your homeserver can
 deliver events. Queries to
-`/_matrix/app/v1/users/{userId}` are publicly accessible and simply indicate
+`GET /_matrix/app/v1/users/{userId}` is publicly accessible and simply indicates
 whether that user is registered.
 Transactions use the standard [push events](https://spec.matrix.org/latest/application-service-api/#put_matrixappv1transactionstxnid)
-format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.to_device`, and other optional fields.
+format so the JSON body may contain `events`, `ephemeral`, `de.sorunome.msc2409.send_to_device`, and other optional fields.
+
+For end-to-end encryption the bot relies on the Matrix Client-Server API
+endpoints `POST /_matrix/client/v3/keys/upload`, `POST /_matrix/client/v3/keys/query`
+and `POST /_matrix/client/v3/keys/claim`. These requests are issued automatically
+whenever new keys need to be uploaded or claimed.
 
 The bot checks each room for the `m.room.encryption` state event before sending a message. Messages to encrypted rooms are locally encrypted, while unencrypted rooms receive plain text.
 Example code:
@@ -178,7 +187,10 @@ async fn room_is_encrypted(&self, room_id: &str) -> bool {
 
 async fn send_message(&self, room_id: &str, body: &str) {
     if self.room_is_encrypted(room_id).await {
-        let (ty, content) = self.encryption.encrypt_text(room_id, body).await;
+        let (ty, content) = self
+            .encryption
+            .encrypt_text(room_id, body, &self.as_client)
+            .await;
         self.as_client.send_raw(room_id, &ty, content).await;
     } else {
         self.as_client.send_text(room_id, body).await;
@@ -200,7 +212,10 @@ async fn room_is_encrypted(&self, room_id: &str) -> bool {
 
 async fn send_message(&self, room_id: &str, body: &str) {
     if self.room_is_encrypted(room_id).await {
-        let (ty, content) = self.encryption.encrypt_text(room_id, body).await;
+        let (ty, content) = self
+            .encryption
+            .encrypt_text(room_id, body, &self.as_client)
+            .await;
         self.as_client.send_raw(room_id, &ty, content).await;
     } else {
         self.as_client.send_text(room_id, body).await;

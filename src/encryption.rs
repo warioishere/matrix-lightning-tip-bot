@@ -1,10 +1,24 @@
 use matrix_sdk_crypto::OlmMachine;
+use std::pin::Pin;
 use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use tempfile::TempDir;
 use tokio::fs;
 use crate::data_layer::data_layer::DataLayer;
 use crate::config::config::Config;
+
+use matrix_sdk_crypto::store::{Store, Changes};
+use serde::Deserialize;
+
+trait StoreSave {
+    fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>>;
+}
+
+impl StoreSave for Store {
+    fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>> {
+        Box::pin(async move { self.save_changes(Changes::default()).await })
+    }
+}
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
@@ -43,7 +57,7 @@ impl EncryptionHelper {
         EncryptionHelper { machine, data_layer: data_layer.clone(), dir }
     }
 
-    pub async fn encrypt_text(&self, room_id: &str, body: &str) -> (String, serde_json::Value) {
+    pub async fn encrypt_text(&self, room_id: &str, body: &str, client: &crate::as_client::MatrixAsClient) -> (String, serde_json::Value) {
         use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
 
         let room_id: OwnedRoomId = room_id.parse().unwrap();
@@ -56,6 +70,12 @@ impl EncryptionHelper {
             )
             .await
             .expect("encrypt");
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        self.process_outgoing_requests(client).await;
 
         // Persist store
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
@@ -70,5 +90,202 @@ impl EncryptionHelper {
             "m.room.encrypted".to_owned(),
             serde_json::to_value(encrypted).expect("serialize encrypted"),
         )
+    }
+
+    pub async fn encrypt_html(&self, room_id: &str, body: &str, html: &str, client: &crate::as_client::MatrixAsClient) -> (String, serde_json::Value) {
+        use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
+
+        let room_id: OwnedRoomId = room_id.parse().unwrap();
+        let content = RoomMessageEventContent::text_html(body.to_owned(), html.to_owned());
+        let encrypted = self
+            .machine
+            .encrypt_room_event(
+                &room_id,
+                AnyMessageLikeEventContent::RoomMessage(content),
+            )
+            .await
+            .expect("encrypt");
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        self.process_outgoing_requests(client).await;
+
+        // Persist store
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+
+        (
+            "m.room.encrypted".to_owned(),
+            serde_json::to_value(encrypted).expect("serialize encrypted"),
+        )
+    }
+
+    pub async fn receive_to_device(&self, events: Vec<serde_json::Value>, client: &crate::as_client::MatrixAsClient) {
+        use matrix_sdk_crypto::{EncryptionSyncChanges};
+        use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
+        use std::collections::BTreeMap;
+
+        let raw_events: Vec<Raw<AnyToDeviceEvent>> = events
+            .into_iter()
+            .filter_map(|ev| serde_json::value::to_raw_value(&ev).ok().map(Raw::from_json))
+            .collect();
+
+        let changes = EncryptionSyncChanges {
+            to_device_events: raw_events,
+            changed_devices: &DeviceLists::new(),
+            one_time_keys_counts: &BTreeMap::<OneTimeKeyAlgorithm, UInt>::new(),
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        };
+
+        if !changes.to_device_events.is_empty() {
+            if let Err(e) = self.machine.receive_sync_changes(changes).await {
+                log::error!("Error processing to-device events: {}", e);
+            }
+            if let Err(e) = self.machine.store().save().await {
+                log::error!("Failed to save crypto store: {}", e);
+            }
+            self.process_outgoing_requests(client).await;
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+    }
+
+    pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value, client: &crate::as_client::MatrixAsClient) -> Option<String> {
+        use matrix_sdk_crypto::{DecryptionSettings, TrustRequirement};
+        use matrix_sdk_crypto::types::events::room::encrypted::EncryptedEvent;
+        use ruma::{serde::Raw, events::{AnyMessageLikeEvent, MessageLikeEvent, room::message::MessageType}};
+
+        let raw: Raw<EncryptedEvent> = serde_json::value::to_raw_value(event).ok().map(Raw::from_json)?;
+        let room_id: OwnedRoomId = room_id.parse().ok()?;
+        let settings = DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let decrypted = self
+            .machine
+            .decrypt_room_event(&raw, &room_id, &settings)
+            .await
+            .ok()?;
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        self.process_outgoing_requests(client).await;
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+
+        let event = decrypted.event.deserialize().ok()?;
+        if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(orig)) = event {
+            if let MessageType::Text(c) = orig.content.msgtype {
+                return Some(c.body);
+            }
+        }
+        None
+    }
+
+    pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
+
+        loop {
+            let requests = match self.machine.outgoing_requests().await {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to fetch outgoing requests: {}", e);
+                    break;
+                }
+            };
+
+            if requests.is_empty() {
+                break;
+            }
+
+            for req in requests {
+                match req.request() {
+                    AnyOutgoingRequest::KeysUpload(upload) => {
+                        let device_id = Some(self.machine.device_id().as_str());
+                        match client.keys_upload(upload.clone(), device_id).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys upload as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to upload keys; will retry");
+                            }
+                        }
+                    }
+                    AnyOutgoingRequest::KeysQuery(query) => {
+                        let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
+                        req_body.timeout = query.timeout;
+                        req_body.device_keys = query.device_keys.clone();
+                        match client.keys_query(req_body).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys query as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to query keys; will retry");
+                            }
+                        }
+                    }
+                    AnyOutgoingRequest::KeysClaim(claim) => {
+                        match client.keys_claim(claim.clone()).await {
+                            Some(response) => {
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &response)
+                                    .await
+                                {
+                                    log::error!("Failed to mark keys claim as sent: {}", e);
+                                }
+                            }
+                            None => {
+                                log::warn!("Failed to claim keys; will retry");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
     }
 }

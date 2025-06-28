@@ -10,12 +10,14 @@ pub mod data_layer {
     pub  use crate::data_layer::models::{
         LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
         LnAddress, NewLnAddress, MatrixStore, NewMatrixStore,
+        DmRoom, NewDmRoom,
     };
     use crate::data_layer::schema;
 
     use schema::matrix_id_2_lnbits_id::dsl::*;
     use schema::ln_addresses::dsl as ln_addresses_dsl;
     use schema::matrix_store::dsl as matrix_store_dsl;
+    use schema::dm_rooms::dsl as dm_rooms_dsl;
 
     #[derive(Clone)]
     pub struct DataLayer {
@@ -93,6 +95,24 @@ pub mod data_layer {
                 .values(&new_store)
                 .execute(&mut connection)
                 .expect("Error saving matrix store");
+        }
+
+        pub fn dm_room_for_user(&self, matrix_id_: &str) -> Option<String> {
+            let mut connection = self.establish_connection();
+            dm_rooms_dsl::dm_rooms
+                .filter(dm_rooms_dsl::matrix_id.eq(matrix_id_))
+                .select(dm_rooms_dsl::room_id)
+                .first::<String>(&mut connection)
+                .ok()
+        }
+
+        pub fn save_dm_room(&self, matrix_id_: &str, room_id_: &str) {
+            let mut connection = self.establish_connection();
+            let record = NewDmRoom { matrix_id: matrix_id_, room_id: room_id_ };
+            diesel::replace_into(schema::dm_rooms::table)
+                .values(&record)
+                .execute(&mut connection)
+                .expect("Error saving dm room");
         }
     }
 }

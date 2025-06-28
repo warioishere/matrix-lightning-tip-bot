@@ -1,19 +1,28 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use ruma::api::client::keys::{claim_keys, get_keys, upload_keys};
+use ruma::api::IncomingResponse;
 use crate::config::config::Config;
+use crate::data_layer::data_layer::DataLayer;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 use urlencoding::encode;
 
+#[derive(Clone)]
 pub struct MatrixAsClient {
     homeserver: String,
     user_id: String,
     as_token: String,
     http: Client,
+    dm_rooms: Arc<Mutex<HashMap<String, String>>>,
+    data_layer: DataLayer,
 }
 
 impl MatrixAsClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, data_layer: DataLayer) -> Self {
         Self {
             homeserver: config.matrix_server.clone(),
             user_id: format!(
@@ -26,18 +35,36 @@ impl MatrixAsClient {
             ),
             as_token: config.registration.app_token.clone(),
             http: Client::new(),
+            dm_rooms: Arc::new(Mutex::new(HashMap::new())),
+            data_layer,
         }
     }
 
     pub async fn set_presence(&self, presence: &str, status_msg: &str) {
         let url = format!(
             "{}/_matrix/client/v3/presence/{}/status",
-            self.homeserver, self.user_id
+            self.homeserver,
+            encode(&self.user_id)
         );
         let content = json!({
             "presence": presence,
             "status_msg": status_msg,
         });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
+    pub async fn set_avatar_url(&self, mxc_url: &str) {
+        let url = format!(
+            "{}/_matrix/client/v3/profile/{}/avatar_url",
+            self.homeserver, encode(&self.user_id)
+        );
+        let content = json!({ "avatar_url": mxc_url });
         let _ = self
             .http
             .put(url)
@@ -81,6 +108,66 @@ impl MatrixAsClient {
             self.homeserver, room_id, txn
         );
         let content = json!({"msgtype": "m.text", "body": body});
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
+    pub async fn send_formatted(&self, room_id: &str, body: &str, formatted: &str) {
+        let txn = Uuid::new_v4().to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
+            self.homeserver, room_id, txn
+        );
+        let content = json!({
+            "msgtype": "m.text",
+            "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": formatted
+        });
+        let _ = self
+            .http
+            .put(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await;
+    }
+
+    pub async fn upload(&self, data: &[u8], content_type: &str, filename: &str) -> Option<String> {
+        let url = format!("{}/_matrix/media/v3/upload", self.homeserver);
+        self.http
+            .post(url)
+            .query(&self.auth_query())
+            .query(&[("filename", filename.to_owned())])
+            .header("Content-Type", content_type)
+            .body(data.to_owned())
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?
+            .get("content_uri")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned())
+    }
+
+    pub async fn send_image(&self, room_id: &str, filename: &str, mxc_url: &str) {
+        let txn = Uuid::new_v4().to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
+            self.homeserver, room_id, txn
+        );
+        let content = json!({
+            "msgtype": "m.image",
+            "body": filename,
+            "url": mxc_url,
+        });
         let _ = self
             .http
             .put(url)
@@ -144,5 +231,146 @@ impl MatrixAsClient {
             },
             Err(_) => None,
         }
+    }
+
+    async fn send_request(
+        &self,
+        request: ruma::exports::http::Request<Vec<u8>>,
+    ) -> Option<ruma::exports::http::Response<Vec<u8>>> {
+        use reqwest::header::{HeaderName, HeaderValue};
+        use reqwest::Method;
+
+        let method = Method::from_bytes(request.method().as_str().as_bytes()).ok()?;
+        let url = request.uri().to_string();
+        let mut builder = self.http.request(method, url);
+        for (name, value) in request.headers().iter() {
+            let hname = HeaderName::from_bytes(name.as_str().as_bytes()).ok()?;
+            let hvalue = HeaderValue::from_bytes(value.as_bytes()).ok()?;
+            builder = builder.header(hname, hvalue);
+        }
+        let resp = builder.body(request.body().clone()).send().await.ok()?;
+        let status = resp.status();
+        let status_code = ruma::exports::http::StatusCode::from_u16(status.as_u16()).ok()?;
+        let mut resp_builder = ruma::exports::http::Response::builder().status(status_code);
+        for (name, value) in resp.headers() {
+            let hname = ruma::exports::http::header::HeaderName::from_bytes(name.as_str().as_bytes()).ok()?;
+            let hvalue = ruma::exports::http::header::HeaderValue::from_bytes(value.as_bytes()).ok()?;
+            resp_builder = resp_builder.header(hname, hvalue);
+        }
+        let bytes = resp.bytes().await.ok()?;
+        resp_builder.body(bytes.to_vec()).ok()
+    }
+
+    async fn create_dm_room(&self, user_id: &str) -> Option<String> {
+        {
+            let map = self.dm_rooms.lock().await;
+            if let Some(room) = map.get(user_id) {
+                return Some(room.clone());
+            }
+        }
+
+        if let Some(room) = self.data_layer.dm_room_for_user(user_id) {
+            let mut map = self.dm_rooms.lock().await;
+            map.insert(user_id.to_owned(), room.clone());
+            return Some(room);
+        }
+
+        let url = format!("{}/_matrix/client/v3/createRoom", self.homeserver);
+        let content = json!({
+            "invite": [user_id],
+            "is_direct": true
+        });
+        let room_id = self
+            .http
+            .post(url)
+            .query(&self.auth_query())
+            .json(&content)
+            .send()
+            .await
+            .ok()?
+            .json::<serde_json::Value>()
+            .await
+            .ok()?
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+
+        if let Some(ref id) = room_id {
+            let mut map = self.dm_rooms.lock().await;
+            map.insert(user_id.to_owned(), id.clone());
+            self.data_layer.save_dm_room(user_id, id);
+        }
+
+        room_id
+    }
+
+    pub async fn send_dm(&self, user_id: &str, body: &str) {
+        if let Some(room_id) = self.create_dm_room(user_id).await {
+            self.send_text(&room_id, body).await;
+        }
+    }
+
+    pub async fn keys_upload(
+        &self,
+        request: upload_keys::v3::Request,
+        device_id: Option<&str>,
+    ) -> Option<upload_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let mut http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        if let Some(id) = device_id {
+            let mut uri = http_req.uri().to_string();
+            let sep = if uri.contains('?') { '&' } else { '?' };
+            uri.push_str(&format!("{sep}device_id={}", encode(id)));
+            *http_req.uri_mut() = uri.parse().ok()?;
+        }
+        let response = self.send_request(http_req).await?;
+        upload_keys::v3::Response::try_from_http_response(response).ok()
+    }
+
+    pub async fn keys_query(
+        &self,
+        request: get_keys::v3::Request,
+    ) -> Option<get_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let response = self.send_request(http_req).await?;
+        get_keys::v3::Response::try_from_http_response(response).ok()
+    }
+
+    pub async fn keys_claim(
+        &self,
+        request: claim_keys::v3::Request,
+    ) -> Option<claim_keys::v3::Response> {
+        use ruma::api::{OutgoingRequestAppserviceExt, SendAccessToken, MatrixVersion};
+        use ruma::{OwnedUserId, UserId};
+        let user: OwnedUserId = UserId::parse(&self.user_id).ok()?.to_owned();
+        let http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let response = self.send_request(http_req).await?;
+        claim_keys::v3::Response::try_from_http_response(response).ok()
     }
 }

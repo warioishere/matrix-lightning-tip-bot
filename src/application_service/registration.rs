@@ -35,6 +35,9 @@ pub struct Registration {
     #[serde(rename = "push_ephemeral", skip_serializing_if = "Option::is_none")]
     pub ephemeral_events: Option<bool>,
 
+    #[serde(rename = "receive_ephemeral", skip_serializing_if = "Option::is_none")]
+    pub receive_ephemeral: Option<bool>,
+
     #[serde(rename = "org.matrix.msc3202", skip_serializing_if = "Option::is_none")]
     pub msc3202: Option<bool>,
 }

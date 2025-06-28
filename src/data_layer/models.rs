@@ -98,3 +98,19 @@ pub struct NewMatrixStore<'a> {
     pub state: &'a [u8],
     pub crypto: &'a [u8],
 }
+
+#[derive(Debug, Queryable, Identifiable, Selectable)]
+#[diesel(table_name = dm_rooms)]
+#[diesel(primary_key(matrix_id))]
+#[diesel(check_for_backend(Sqlite))]
+pub struct DmRoom {
+    pub matrix_id: String,
+    pub room_id: String,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = dm_rooms)]
+pub struct NewDmRoom<'a> {
+    pub matrix_id: &'a str,
+    pub room_id: &'a str,
+}

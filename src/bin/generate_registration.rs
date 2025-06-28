@@ -49,8 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rate_limited: None,
         namespaces,
         protocols: vec![],
-        soru_ephemeral_events: None,
+        soru_ephemeral_events: Some(true),
         ephemeral_events: None,
+        receive_ephemeral: Some(true),
         msc3202: None,
     };
 
