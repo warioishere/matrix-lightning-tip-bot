@@ -38,11 +38,12 @@ impl MatrixBot {
         bot
     }
 
-    pub async fn init(&self) {
+    pub async fn init(self: Arc<Self>) {
         self
             .as_client
             .set_presence("online", "Ready to help")
             .await;
+        self.clone().start_presence_loop();
         log::info!("MatrixBot initialized");
     }
 
@@ -290,6 +291,17 @@ impl MatrixBot {
             }
             sleep(Duration::from_secs(10)).await;
         }
+    }
+
+    fn start_presence_loop(self: Arc<Self>) {
+        tokio::spawn(async move {
+            loop {
+                self.as_client
+                    .set_presence("online", "Ready to help")
+                    .await;
+                sleep(Duration::from_secs(300)).await;
+            }
+        });
     }
 
     fn bot_name(&self) -> String {
