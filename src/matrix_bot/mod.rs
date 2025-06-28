@@ -34,6 +34,7 @@ impl MatrixBot {
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let mut as_client = MatrixAsClient::new(config, data_layer.clone());
         as_client.load_auth();
+        as_client.ensure_valid_token().await;
         if !as_client.has_access_token() {
             for attempt in 1..=3 {
                 as_client.login().await;

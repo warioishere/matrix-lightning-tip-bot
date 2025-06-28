@@ -97,6 +97,24 @@ impl MatrixAsClient {
         }
     }
 
+    pub async fn ensure_valid_token(&mut self) {
+        if let Some(token) = &self.access_token {
+            let url = format!(
+                "{}/_matrix/client/v3/account/whoami",
+                self.homeserver
+            );
+            let resp = self.http.get(url).bearer_auth(token).send().await;
+            if resp
+                .map(|r| r.status() == StatusCode::UNAUTHORIZED)
+                .unwrap_or(true)
+            {
+                log::warn!("Stored access token invalid, re-logging in");
+                self.access_token = None;
+                self.login().await;
+            }
+        }
+    }
+
     pub async fn set_presence(&self, presence: &str, status_msg: &str) {
         let url = format!(
             "{}/_matrix/client/v3/presence/{}/status",
