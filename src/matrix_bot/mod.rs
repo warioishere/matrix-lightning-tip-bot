@@ -309,9 +309,6 @@ impl MatrixBot {
         });
     }
 
-    fn bot_name(&self) -> String {
-        self.business_logic_context.config().registration.sender_localpart.clone()
-    }
 
     fn is_user_allowed(&self, user_id: &str) -> bool {
         use ruma::UserId;
