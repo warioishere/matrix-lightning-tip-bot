@@ -15,6 +15,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static BOT_CREATED: AtomicBool = AtomicBool::new(false);
 
 pub struct MatrixBot {
     pub business_logic_context: BusinessLogicContext,
@@ -25,6 +28,9 @@ pub struct MatrixBot {
 
 impl MatrixBot {
     pub async fn new(data_layer: DataLayer, lnbits_client: LNBitsClient, config: &Config) -> Self {
+        if BOT_CREATED.swap(true, Ordering::SeqCst) {
+            panic!("MatrixBot initialized multiple times");
+        }
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let mut as_client = MatrixAsClient::new(config, data_layer.clone());
         as_client.load_auth();

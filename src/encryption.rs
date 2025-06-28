@@ -196,121 +196,113 @@ impl EncryptionHelper {
         None
     }
 
-    pub async fn process_outgoing_requests_once(
-        &self,
-        client: &crate::as_client::MatrixAsClient,
-    ) -> Result<(), ()> {
-        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-
-        let mut ok = true;
-        loop {
-            let requests = match self.machine.outgoing_requests().await {
-                Ok(r) => r,
-                Err(e) => {
-                    log::warn!("Failed to fetch outgoing requests: {}", e);
-                    ok = false;
-                    break;
-                }
-            };
-
-            if requests.is_empty() {
-                break;
-            }
-
-            for req in requests {
-                match req.request() {
-                    AnyOutgoingRequest::KeysUpload(upload) => {
-                        match client.keys_upload(upload.clone()).await {
-                            Some(response) => {
-                                if let Err(e) = self
-                                    .machine
-                                    .mark_request_as_sent(req.request_id(), &response)
-                                    .await
-                                {
-                                    log::warn!("Failed to mark keys upload as sent: {}", e);
-                                    ok = false;
-                                }
-                            }
-                            None => {
-                                log::warn!("Failed to upload keys; will retry");
-                                ok = false;
-                            }
-                        }
-                    }
-                    AnyOutgoingRequest::KeysQuery(query) => {
-                        let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
-                        req_body.timeout = query.timeout;
-                        req_body.device_keys = query.device_keys.clone();
-                        match client.keys_query(req_body).await {
-                            Some(response) => {
-                                if let Err(e) = self
-                                    .machine
-                                    .mark_request_as_sent(req.request_id(), &response)
-                                    .await
-                                {
-                                    log::warn!("Failed to mark keys query as sent: {}", e);
-                                    ok = false;
-                                }
-                            }
-                            None => {
-                                log::warn!("Failed to query keys; will retry");
-                                ok = false;
-                            }
-                        }
-                    }
-                    AnyOutgoingRequest::KeysClaim(claim) => {
-                        match client.keys_claim(claim.clone()).await {
-                            Some(response) => {
-                                if let Err(e) = self
-                                    .machine
-                                    .mark_request_as_sent(req.request_id(), &response)
-                                    .await
-                                {
-                                    log::warn!("Failed to mark keys claim as sent: {}", e);
-                                    ok = false;
-                                }
-                            }
-                            None => {
-                                log::warn!("Failed to claim keys; will retry");
-                                ok = false;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        if let Err(e) = self.machine.store().save().await {
-            log::warn!("Failed to save crypto store: {}", e);
-            ok = false;
-        }
-
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
-        if ok { Ok(()) } else { Err(()) }
-    }
-
     pub fn spawn_sync_loop(self: std::sync::Arc<Self>, client: crate::as_client::MatrixAsClient) {
         use tokio::time::{sleep, Duration};
         tokio::spawn(async move {
             let mut failures = 0u32;
             loop {
-                match self.process_outgoing_requests_once(&client).await {
-                    Ok(_) => failures = 0,
-                    Err(_) => {
-                        failures = failures.saturating_add(1);
-                        log::warn!("Encryption sync attempt failed");
-                        if failures == 3 {
-                            log::error!(
-                                "Encryption sync failed 3 times in a row. Will keep retrying every 2s."
-                            );
+                use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
+                let mut ok = true;
+                loop {
+                    let requests = match self.machine.outgoing_requests().await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log::warn!("Failed to fetch outgoing requests: {}", e);
+                            ok = false;
+                            break;
                         }
+                    };
+
+                    if requests.is_empty() {
+                        break;
+                    }
+
+                    for req in requests {
+                        match req.request() {
+                            AnyOutgoingRequest::KeysUpload(upload) => {
+                                match client.keys_upload(upload.clone()).await {
+                                    Some(response) => {
+                                        if let Err(e) = self
+                                            .machine
+                                            .mark_request_as_sent(req.request_id(), &response)
+                                            .await
+                                        {
+                                            log::warn!("Failed to mark keys upload as sent: {}", e);
+                                            ok = false;
+                                        }
+                                    }
+                                    None => {
+                                        log::warn!("Failed to upload keys; will retry");
+                                        ok = false;
+                                    }
+                                }
+                            }
+                            AnyOutgoingRequest::KeysQuery(query) => {
+                                let mut req_body = ruma::api::client::keys::get_keys::v3::Request::new();
+                                req_body.timeout = query.timeout;
+                                req_body.device_keys = query.device_keys.clone();
+                                match client.keys_query(req_body).await {
+                                    Some(response) => {
+                                        if let Err(e) = self
+                                            .machine
+                                            .mark_request_as_sent(req.request_id(), &response)
+                                            .await
+                                        {
+                                            log::warn!("Failed to mark keys query as sent: {}", e);
+                                            ok = false;
+                                        }
+                                    }
+                                    None => {
+                                        log::warn!("Failed to query keys; will retry");
+                                        ok = false;
+                                    }
+                                }
+                            }
+                            AnyOutgoingRequest::KeysClaim(claim) => {
+                                match client.keys_claim(claim.clone()).await {
+                                    Some(response) => {
+                                        if let Err(e) = self
+                                            .machine
+                                            .mark_request_as_sent(req.request_id(), &response)
+                                            .await
+                                        {
+                                            log::warn!("Failed to mark keys claim as sent: {}", e);
+                                            ok = false;
+                                        }
+                                    }
+                                    None => {
+                                        log::warn!("Failed to claim keys; will retry");
+                                        ok = false;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                if let Err(e) = self.machine.store().save().await {
+                    log::warn!("Failed to save crypto store: {}", e);
+                    ok = false;
+                }
+
+                let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+                    .await
+                    .unwrap_or_default();
+                let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+                    .await
+                    .unwrap_or_default();
+                self.data_layer.save_matrix_store(&state, &crypto);
+
+                if ok {
+                    failures = 0;
+                } else {
+                    failures = failures.saturating_add(1);
+                    log::warn!("Encryption sync attempt failed");
+                    if failures == 3 {
+                        log::error!(
+                            "Encryption sync failed 3 times in a row. Will keep retrying every 2s."
+                        );
                     }
                 }
                 sleep(Duration::from_secs(2)).await;
