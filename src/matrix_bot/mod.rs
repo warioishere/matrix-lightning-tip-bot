@@ -33,7 +33,7 @@ impl MatrixBot {
         }
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let as_client = MatrixAsClient::new(config, data_layer.clone());
-        as_client.create_device().await;
+        as_client.create_device_msc4190().await;
 
         let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
         let bot = MatrixBot {
@@ -42,6 +42,16 @@ impl MatrixBot {
             encryption: encryption.clone(),
             room_encryption: Mutex::new(HashMap::new()),
         };
+        {
+            let client = bot.as_client.clone();
+            let enc = encryption.clone();
+            tokio::spawn(async move {
+                loop {
+                    enc.process_outgoing_requests(&client).await;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            });
+        }
         bot
     }
 

@@ -240,11 +240,18 @@ impl EncryptionHelper {
         let raw: Raw<EncryptedEvent> = serde_json::value::to_raw_value(event).ok().map(Raw::from_json)?;
         let room_id: OwnedRoomId = room_id.parse().ok()?;
         let settings = DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-        let decrypted = self
+        let decrypted = match self
             .machine
             .decrypt_room_event(&raw, &room_id, &settings)
             .await
-            .ok()?;
+        {
+            Ok(ev) => ev,
+            Err(matrix_sdk_crypto::MegolmError::MissingRoomKey(_)) => {
+                let _ = self.machine.request_room_key(&raw, &room_id).await;
+                return None;
+            }
+            Err(_) => return None,
+        };
 
         if let Err(e) = self.machine.store().save().await {
             log::error!("Failed to save crypto store: {}", e);
@@ -266,6 +273,45 @@ impl EncryptionHelper {
             }
         }
         None
+    }
+
+    pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
+        use ruma::api::client::keys::{get_keys};
+
+        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
+        for req in requests {
+            match req.request() {
+                AnyOutgoingRequest::KeysUpload(upload) => {
+                    if let Some(resp) = client.keys_upload(upload.clone()).await {
+                        self.machine
+                            .mark_request_as_sent(req.request_id(), &resp)
+                            .await
+                            .unwrap();
+                    }
+                }
+                AnyOutgoingRequest::KeysQuery(query) => {
+                    let mut body = get_keys::v3::Request::new();
+                    body.device_keys = query.device_keys.clone();
+                    if let Some(resp) = client.keys_query(body).await {
+                        self.machine
+                            .mark_request_as_sent(req.request_id(), &resp)
+                            .await
+                            .unwrap();
+                    }
+                }
+                AnyOutgoingRequest::KeysClaim(claim) => {
+                    if let Some(resp) = client.keys_claim(claim.clone()).await {
+                        self.machine
+                            .mark_request_as_sent(req.request_id(), &resp)
+                            .await
+                            .unwrap();
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.machine.store().save().await.unwrap();
     }
 
 }

@@ -1,5 +1,6 @@
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use ruma::api::IncomingResponse;
 use crate::config::config::Config;
 use crate::data_layer::data_layer::DataLayer;
 use std::collections::HashMap;
@@ -43,19 +44,14 @@ impl MatrixAsClient {
         }
     }
 
-    pub async fn create_device(&self) {
-        let url = format!(
-            "{}/_matrix/client/v1/admin/create_device",
-            self.homeserver
-        );
-        let body = json!({
-            "user_id": self.user_id,
-            "device_id": DEVICE_ID,
+    pub async fn create_device_msc4190(&self) {
+        let url = format!("{}/_matrix/client/v3/devices/{}", self.homeserver, DEVICE_ID);
+        let body = serde_json::json!({
             "display_name": "Lightning Tip Bot"
         });
         let _ = self
             .http
-            .post(url)
+            .put(url)
             .query(&[("access_token", self.as_token.clone())])
             .json(&body)
             .send()
@@ -76,6 +72,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -91,6 +88,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -106,6 +104,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -114,8 +113,9 @@ impl MatrixAsClient {
 
     fn auth_query(&self) -> Vec<(&str, String)> {
         vec![
-            ("access_token", self.as_token.clone()),
+            ("user_id", self.user_id.clone()),
             ("device_id", self.device_id.clone()),
+            ("org.matrix.msc3202.device_id", self.device_id.clone()),
         ]
     }
 
@@ -134,6 +134,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -155,6 +156,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -165,6 +167,7 @@ impl MatrixAsClient {
         let url = format!("{}/_matrix/media/v3/upload", self.homeserver);
         self.http
             .post(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .query(&[("filename", filename.to_owned())])
             .header("Content-Type", content_type)
@@ -194,6 +197,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -209,6 +213,7 @@ impl MatrixAsClient {
         let _ = self
             .http
             .put(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -223,6 +228,7 @@ impl MatrixAsClient {
         match self
             .http
             .get(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .send()
             .await
@@ -244,6 +250,7 @@ impl MatrixAsClient {
         match self
             .http
             .get(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .send()
             .await
@@ -264,7 +271,9 @@ impl MatrixAsClient {
         use reqwest::Method;
 
         let method = Method::from_bytes(request.method().as_str().as_bytes()).ok()?;
-        let url = request.uri().to_string();
+        let mut url = request.uri().to_string();
+        let sep = if url.contains('?') { '&' } else { '?' };
+        url.push_str(&format!("{sep}device_id={}&org.matrix.msc3202.device_id={}", self.device_id, self.device_id));
         let mut builder = self.http.request(method, url);
         for (name, value) in request.headers().iter() {
             let hname = HeaderName::from_bytes(name.as_str().as_bytes()).ok()?;
@@ -306,6 +315,7 @@ impl MatrixAsClient {
         let room_id = self
             .http
             .post(url)
+            .bearer_auth(&self.as_token)
             .query(&self.auth_query())
             .json(&content)
             .send()
@@ -331,6 +341,78 @@ impl MatrixAsClient {
         if let Some(room_id) = self.create_dm_room(user_id).await {
             self.send_text(&room_id, body).await;
         }
+    }
+
+    pub async fn keys_upload(
+        &self,
+        request: ruma::api::client::keys::upload_keys::v3::Request,
+    ) -> Option<ruma::api::client::keys::upload_keys::v3::Response> {
+        use ruma::api::{MatrixVersion, SendAccessToken, OutgoingRequestAppserviceExt};
+        use ruma::OwnedUserId;
+
+        let user_id: OwnedUserId = self.user_id.parse().ok()?;
+        let mut http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user_id,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let mut url = http_req.uri().to_string();
+        let sep = if url.contains('?') { '&' } else { '?' };
+        url.push_str(&format!("{sep}device_id={}&org.matrix.msc3202.device_id={}", self.device_id, self.device_id));
+        *http_req.uri_mut() = url.parse().ok()?;
+        let response = self.send_request(http_req).await?;
+        ruma::api::client::keys::upload_keys::v3::Response::try_from_http_response(response).ok()
+    }
+
+    pub async fn keys_query(
+        &self,
+        request: ruma::api::client::keys::get_keys::v3::Request,
+    ) -> Option<ruma::api::client::keys::get_keys::v3::Response> {
+        use ruma::api::{MatrixVersion, SendAccessToken, OutgoingRequestAppserviceExt};
+        use ruma::OwnedUserId;
+
+        let user_id: OwnedUserId = self.user_id.parse().ok()?;
+        let mut http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user_id,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let mut url = http_req.uri().to_string();
+        let sep = if url.contains('?') { '&' } else { '?' };
+        url.push_str(&format!("{sep}device_id={}&org.matrix.msc3202.device_id={}", self.device_id, self.device_id));
+        *http_req.uri_mut() = url.parse().ok()?;
+        let response = self.send_request(http_req).await?;
+        ruma::api::client::keys::get_keys::v3::Response::try_from_http_response(response).ok()
+    }
+
+    pub async fn keys_claim(
+        &self,
+        request: ruma::api::client::keys::claim_keys::v3::Request,
+    ) -> Option<ruma::api::client::keys::claim_keys::v3::Response> {
+        use ruma::api::{MatrixVersion, SendAccessToken, OutgoingRequestAppserviceExt};
+        use ruma::OwnedUserId;
+
+        let user_id: OwnedUserId = self.user_id.parse().ok()?;
+        let mut http_req = request
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user_id,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let mut url = http_req.uri().to_string();
+        let sep = if url.contains('?') { '&' } else { '?' };
+        url.push_str(&format!("{sep}device_id={}&org.matrix.msc3202.device_id={}", self.device_id, self.device_id));
+        *http_req.uri_mut() = url.parse().ok()?;
+        let response = self.send_request(http_req).await?;
+        ruma::api::client::keys::claim_keys::v3::Response::try_from_http_response(response).ok()
     }
 
 }
