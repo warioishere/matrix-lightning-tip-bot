@@ -21,15 +21,6 @@ impl StoreSave for Store {
     }
 }
 
-trait OlmMachineShareKeys {
-    fn share_keys(&self) -> Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
-}
-
-impl OlmMachineShareKeys for OlmMachine {
-    fn share_keys(&self) -> Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
-        Box::pin(async { Ok(()) })
-    }
-}
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
@@ -272,7 +263,18 @@ impl EncryptionHelper {
         None
     }
 
-    async fn send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+
+    async fn save_store(&self) {
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
+    }
+
+    pub async fn process_and_send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
@@ -352,27 +354,12 @@ impl EncryptionHelper {
         self.save_store().await;
     }
 
-    async fn save_store(&self) {
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
-    }
-
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
-        self.send_outgoing_requests(client).await;
+        self.process_and_send_outgoing_requests(client).await;
     }
 
     pub async fn share_keys_if_needed(&self, client: &crate::as_client::MatrixAsClient) {
-        // gather key upload requests and queue them
-        if let Err(e) = self.machine.share_keys().await {
-            log::error!("Failed to share keys: {}", e);
-        }
-
-        self.send_outgoing_requests(client).await;
+        self.process_and_send_outgoing_requests(client).await;
     }
 
     pub async fn retry_pending_events(&self) -> Vec<(String, String, String)> {
@@ -400,14 +387,5 @@ impl EncryptionHelper {
         }
         results
     }
-
-    pub async fn ensure_otk(&self, min_keys: u32) -> Result<(), Box<dyn std::error::Error>> {
-        let current = self.machine.store().count_one_time_keys().await?;
-        if current < min_keys {
-            self.machine.generate_one_time_keys(min_keys * 2).await?;
-        }
-        Ok(())
-    }
-
 
 }
