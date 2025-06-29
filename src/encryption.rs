@@ -300,11 +300,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
-        let mut requests = Vec::new();
-        if let Ok(Some((_, req))) = self.machine.upload_device_keys().await {
-            requests.push(matrix_sdk_crypto::types::requests::OutgoingRequest::from(req));
-        }
-        requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
+        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
         for req in requests {
             match req.request() {
                 AnyOutgoingRequest::KeysUpload(upload) => {
@@ -390,11 +386,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
-        let mut requests = Vec::new();
-        if let Ok(Some((_, req))) = self.machine.upload_device_keys().await {
-            requests.push(matrix_sdk_crypto::types::requests::OutgoingRequest::from(req));
-        }
-        requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
+        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
 
         for req in requests {
             match req.request() {
