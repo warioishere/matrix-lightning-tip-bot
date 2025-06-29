@@ -131,6 +131,9 @@ and thereafter authenticates all Client-Server API requests solely with the appl
 No interactive login or access token handling is performed by the bot itself.
 If `--avatar-path` is set, the bot sets its avatar URL to this `mxc` link at startup
 using `PUT /_matrix/client/v3/profile/{userId}/avatar_url`.
+The bot automatically shares its device keys when needed. After processing one-time key
+counts or during startup it calls `OlmMachine.share_keys()` and uploads any generated
+`/keys/upload` requests so encrypted conversations can start immediately.
 
 ### Running
 Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.

@@ -51,6 +51,9 @@ impl MatrixBot {
             .as_client
             .set_presence("online", "Ready to help")
             .await;
+        self.encryption
+            .share_keys_if_needed(&self.as_client)
+            .await;
         self.clone().start_presence_loop();
         self.clone().start_crypto_loop();
         log::info!("MatrixBot initialized");
@@ -80,6 +83,10 @@ impl MatrixBot {
         }
         if let Some(counts) = otk_counts {
             self.encryption.receive_otk_counts(counts).await;
+            self
+                .encryption
+                .share_keys_if_needed(&self.as_client)
+                .await;
         }
         for ev in events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
