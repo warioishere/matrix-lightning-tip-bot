@@ -40,6 +40,9 @@ pub struct Registration {
 
     #[serde(rename = "org.matrix.msc3202", skip_serializing_if = "Option::is_none")]
     pub msc3202: Option<bool>,
+
+    #[serde(rename = "io.element.msc4190", skip_serializing_if = "Option::is_none")]
+    pub io_element_msc4190: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

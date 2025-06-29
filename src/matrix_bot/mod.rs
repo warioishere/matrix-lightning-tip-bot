@@ -33,16 +33,17 @@ impl MatrixBot {
         }
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let as_client = MatrixAsClient::new(config, data_layer.clone());
-        as_client.create_device().await;
+        if let Err(e) = as_client.create_device_msc4190().await {
+            log::error!("Failed to create MSC4190 device: {}", e);
+        }
 
         let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
-        let bot = MatrixBot {
+        MatrixBot {
             business_logic_context: ctx,
             as_client,
             encryption: encryption.clone(),
             room_encryption: Mutex::new(HashMap::new()),
-        };
-        bot
+        }
     }
 
     pub async fn init(self: Arc<Self>) {
@@ -51,6 +52,7 @@ impl MatrixBot {
             .set_presence("online", "Ready to help")
             .await;
         self.clone().start_presence_loop();
+        self.clone().start_crypto_loop();
         log::info!("MatrixBot initialized");
     }
 
@@ -69,7 +71,10 @@ impl MatrixBot {
         device_lists: Option<Value>,
         otk_counts: Option<Value>,
     ) {
-        self.encryption.receive_to_device(send_to_device).await;
+        let new_msgs = self.encryption.receive_to_device(send_to_device).await;
+        for (room, sender, body) in new_msgs {
+            self.clone().handle_message(&room, &sender, &body, None).await;
+        }
         if let Some(lists) = device_lists {
             self.encryption.receive_device_lists(lists).await;
         }
@@ -315,6 +320,19 @@ impl MatrixBot {
                     .set_presence("online", "Ready to help")
                     .await;
                 sleep(Duration::from_secs(300)).await;
+            }
+        });
+    }
+
+    fn start_crypto_loop(self: Arc<Self>) {
+        tokio::spawn(async move {
+            loop {
+                self.encryption.process_outgoing_requests(&self.as_client).await;
+                let msgs = self.encryption.retry_pending_events().await;
+                for (room, sender, body) in msgs {
+                    self.clone().handle_message(&room, &sender, &body, None).await;
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
             }
         });
     }
