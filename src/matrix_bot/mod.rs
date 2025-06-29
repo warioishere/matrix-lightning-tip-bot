@@ -33,7 +33,9 @@ impl MatrixBot {
         }
         let ctx = BusinessLogicContext::new(lnbits_client, data_layer.clone(), config);
         let as_client = MatrixAsClient::new(config, data_layer.clone());
-        as_client.create_device_msc4190().await;
+        if let Err(e) = as_client.create_device_msc4190().await {
+            log::error!("Failed to create MSC4190 device: {}", e);
+        }
 
         let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
         let bot = MatrixBot {
