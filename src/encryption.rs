@@ -1,11 +1,8 @@
 use matrix_sdk_crypto::OlmMachine;
 use std::pin::Pin;
-use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
+use matrix_sdk_sqlite::SqliteCryptoStore;
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
-use tempfile::TempDir;
-use tokio::fs;
 use tokio::sync::Mutex;
-use crate::data_layer::data_layer::DataLayer;
 use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
@@ -24,13 +21,11 @@ impl StoreSave for Store {
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
-    data_layer: DataLayer,
-    dir: TempDir,
     pending: tokio::sync::Mutex<Vec<(OwnedRoomId, serde_json::Value)>>,
 }
 
 impl EncryptionHelper {
-    pub async fn new(data_layer: &DataLayer, config: &Config) -> Self {
+    pub async fn new(config: &Config) -> Self {
         let user_id: OwnedUserId = format!(
             "@{}:{}",
             config.registration.sender_localpart,
@@ -43,21 +38,17 @@ impl EncryptionHelper {
         .unwrap();
         let device_id: OwnedDeviceId = crate::as_client::DEVICE_ID.into();
 
-        let dir = tempfile::tempdir().expect("create temp dir");
+        let db_path = std::path::Path::new(&config.database_url);
+        let crypto_dir = db_path.parent().unwrap_or_else(|| std::path::Path::new("."));
 
-        if let Some((state, crypto)) = data_layer.load_matrix_store() {
-            let _ = fs::write(dir.path().join(STATE_STORE_DATABASE_NAME), state).await;
-            let _ = fs::write(dir.path().join("matrix-sdk-crypto.sqlite3"), crypto).await;
-        }
-
-        let store = SqliteCryptoStore::open(dir.path(), None)
+        let store = SqliteCryptoStore::open(crypto_dir, None)
             .await
             .expect("open crypto store");
         let machine = OlmMachine::with_store(&user_id, &device_id, store, None)
             .await
             .expect("create olm machine");
 
-        EncryptionHelper { machine, data_layer: data_layer.clone(), dir, pending: Mutex::new(Vec::new()) }
+        EncryptionHelper { machine, pending: Mutex::new(Vec::new()) }
     }
 
     pub async fn encrypt_text(&self, room_id: &str, body: &str) -> (String, serde_json::Value) {
@@ -77,8 +68,6 @@ impl EncryptionHelper {
         if let Err(e) = self.machine.store().save().await {
             log::error!("Failed to save crypto store: {}", e);
         }
-
-        self.save_store().await;
 
         (
             "m.room.encrypted".to_owned(),
@@ -103,8 +92,6 @@ impl EncryptionHelper {
         if let Err(e) = self.machine.store().save().await {
             log::error!("Failed to save crypto store: {}", e);
         }
-
-        self.save_store().await;
 
         (
             "m.room.encrypted".to_owned(),
@@ -139,8 +126,6 @@ impl EncryptionHelper {
             }
         }
 
-        self.save_store().await;
-
         self.retry_pending_events().await
     }
 
@@ -167,7 +152,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn receive_otk_counts(&self, counts_json: serde_json::Value) {
@@ -201,7 +185,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
@@ -246,13 +229,6 @@ impl EncryptionHelper {
         }
 
 
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
 
         let event = decrypted.event.deserialize().ok()?;
         if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(orig)) = event {
@@ -264,15 +240,6 @@ impl EncryptionHelper {
     }
 
 
-    async fn save_store(&self) {
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
-    }
 
     pub async fn process_and_send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
@@ -361,7 +328,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {

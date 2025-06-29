@@ -37,7 +37,7 @@ impl MatrixBot {
             log::error!("Failed to create MSC4190 device: {}", e);
         }
 
-        let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
+        let encryption = Arc::new(EncryptionHelper::new(config).await);
         MatrixBot {
             business_logic_context: ctx,
             as_client,
