@@ -1,4 +1,6 @@
 use matrix_sdk_crypto::OlmMachine;
+use matrix_sdk_crypto::types::requests::OutgoingRequest;
+use futures::future::BoxFuture;
 use std::pin::Pin;
 use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
@@ -17,6 +19,16 @@ trait StoreSave {
 impl StoreSave for Store {
     fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>> {
         Box::pin(async move { self.save_changes(Changes::default()).await })
+    }
+}
+
+pub trait OlmMachineExt {
+    fn share_keys(&self) -> BoxFuture<'_, Vec<OutgoingRequest>>;
+}
+
+impl OlmMachineExt for OlmMachine {
+    fn share_keys(&self) -> BoxFuture<'_, Vec<OutgoingRequest>> {
+        Box::pin(async move { self.outgoing_requests().await.unwrap_or_default() })
     }
 }
 
@@ -299,7 +311,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::{get_keys};
         
-        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
+        let requests = self.machine.share_keys().await;
         for req in requests {
             match req.request() {
                 AnyOutgoingRequest::KeysUpload(upload) => {
@@ -412,7 +424,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
-        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
+        let requests = self.machine.share_keys().await;
 
         for req in requests {
             match req.request() {
