@@ -10,7 +10,7 @@ pub mod data_layer {
     pub  use crate::data_layer::models::{
         LNBitsId, MatrixId2LNBitsId, NewMatrixId2LNBitsId,
         LnAddress, NewLnAddress, MatrixStore, NewMatrixStore,
-        NewDmRoom, ClientAuth, NewClientAuth,
+        NewDmRoom,
     };
     use crate::data_layer::schema;
 
@@ -18,7 +18,6 @@ pub mod data_layer {
     use schema::ln_addresses::dsl as ln_addresses_dsl;
     use schema::matrix_store::dsl as matrix_store_dsl;
     use schema::dm_rooms::dsl as dm_rooms_dsl;
-    use schema::client_auth::dsl as client_auth_dsl;
 
     #[derive(Clone)]
     pub struct DataLayer {
@@ -116,24 +115,7 @@ pub mod data_layer {
                 .expect("Error saving dm room");
         }
 
-        pub fn load_client_auth(&self) -> Option<ClientAuth> {
-            let mut connection = self.establish_connection();
-            client_auth_dsl::client_auth
-                .filter(client_auth_dsl::id.eq(1))
-                .select(ClientAuth::as_select())
-                .load::<ClientAuth>(&mut connection)
-                .ok()
-                .and_then(|mut v| v.pop())
-        }
 
-        pub fn save_client_auth(&self, access_token: &str, device_id: &str) {
-            let mut connection = self.establish_connection();
-            let record = NewClientAuth { id: 1, access_token, device_id };
-            diesel::replace_into(schema::client_auth::table)
-                .values(&record)
-                .execute(&mut connection)
-                .expect("Error saving client auth");
-        }
     }
 }
 
