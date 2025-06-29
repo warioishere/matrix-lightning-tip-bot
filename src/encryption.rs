@@ -10,18 +10,6 @@ use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
 
-use std::future::Future;
-use matrix_sdk_crypto::types::requests::OutgoingRequest;
-
-trait OlmMachineExt {
-    fn share_keys(&self) -> Pin<Box<dyn Future<Output = Vec<OutgoingRequest>> + Send + '_>>;
-}
-
-impl OlmMachineExt for OlmMachine {
-    fn share_keys(&self) -> Pin<Box<dyn Future<Output = Vec<OutgoingRequest>> + Send + '_>> {
-        Box::pin(async move { self.outgoing_requests().await.unwrap_or_default() })
-    }
-}
 
 trait StoreSave {
     fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>>;
@@ -310,9 +298,12 @@ impl EncryptionHelper {
 
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-        use ruma::api::client::keys::{get_keys};
-        
-        let mut requests = self.machine.share_keys().await;
+        use ruma::api::client::keys::get_keys;
+
+        let mut requests = Vec::new();
+        if let Ok(Some((_, req))) = self.machine.upload_device_keys().await {
+            requests.push(matrix_sdk_crypto::types::requests::OutgoingRequest::from(req));
+        }
         requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
         for req in requests {
             match req.request() {
@@ -382,14 +373,27 @@ impl EncryptionHelper {
                 _ => {}
             }
         }
-        self.machine.store().save().await.unwrap();
+        if let Err(e) = self.machine.store().save().await {
+            log::error!("Failed to save crypto store: {}", e);
+        }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
     }
 
     pub async fn share_keys_if_needed(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
-        let mut requests = self.machine.share_keys().await;
+        let mut requests = Vec::new();
+        if let Ok(Some((_, req))) = self.machine.upload_device_keys().await {
+            requests.push(matrix_sdk_crypto::types::requests::OutgoingRequest::from(req));
+        }
         requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
 
         for req in requests {
@@ -464,6 +468,14 @@ impl EncryptionHelper {
         if let Err(e) = self.machine.store().save().await {
             log::error!("Failed to save crypto store: {}", e);
         }
+
+        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
+            .await
+            .unwrap_or_default();
+        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
+            .await
+            .unwrap_or_default();
+        self.data_layer.save_matrix_store(&state, &crypto);
     }
 
     pub async fn retry_pending_events(&self) -> Vec<(String, String, String)> {
