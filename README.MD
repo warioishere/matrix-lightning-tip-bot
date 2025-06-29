@@ -76,18 +76,29 @@ used for creating lightning addresses without the bearer token:
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
---database-url=/db/db.db                               # The absolute path to your generated db.
+--database-url=/data/db/tipbot.db                      # The absolute path to your generated db.
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
 ### Running
-Run `docker run --rm  -v <path-to-config-directory>:/config/  -v <path-to-database-directory>:/db  matrix-lightning-tip-bot  matrix-lightning-tip-bot @/config/config.conf` to start the MLTB container.
+For example run: 
+
+```
+docker run -d \
+  --name matrix-tipbot \
+  --restart always \
+  -v /opt/lntipbot/data/config/config.conf:/data/config/config.conf \
+  -v /opt/lntipbot/data/db/tipbot.db:/data/db/tipbot.db \
+  matrix-lightning-tip-bot matrix-lightning-tip-bot @/data/config/config.conf
+```
+
+to start the MLTB container.
 
 It is also possible to use the docker-compose file. This will require .env file containing the entries
 ```
 CONFIG_DIR=<path-to-config-directory>
 DATABASE_DIR=<path-to-database-directory>
-CONFIG_FILE=@/config/config.conf
+CONFIG_FILE=@/data/config/config.conf
 ```
 See https://docs.docker.com/compose/environment-variables/ for more information.
 
