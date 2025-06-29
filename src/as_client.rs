@@ -69,7 +69,7 @@ impl MatrixAsClient {
             .http
             .put(url)
             .bearer_auth(&self.as_token)
-            .query(&self.auth_query())
+            .query(&[("user_id", self.user_id.clone())])
             .json(&body)
             .send()
             .await?;
