@@ -298,7 +298,7 @@ impl EncryptionHelper {
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::{get_keys};
-
+        
         let requests = self.machine.outgoing_requests().await.unwrap_or_default();
         for req in requests {
             match req.request() {
@@ -322,6 +322,14 @@ impl EncryptionHelper {
                 }
                 AnyOutgoingRequest::KeysClaim(claim) => {
                     if let Some(resp) = client.keys_claim(claim.clone()).await {
+                        self.machine
+                            .mark_request_as_sent(req.request_id(), &resp)
+                            .await
+                            .unwrap();
+                    }
+                }
+                AnyOutgoingRequest::ToDeviceRequest(td) => {
+                    if let Some(resp) = client.send_to_device(td.clone()).await {
                         self.machine
                             .mark_request_as_sent(req.request_id(), &resp)
                             .await

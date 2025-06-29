@@ -426,6 +426,31 @@ impl MatrixAsClient {
         ruma::api::client::keys::claim_keys::v3::Response::try_from_http_response(response).ok()
     }
 
+    pub async fn send_to_device(
+        &self,
+        request: matrix_sdk_crypto::types::requests::ToDeviceRequest,
+    ) -> Option<ruma::api::client::to_device::send_event_to_device::v3::Response> {
+        use ruma::api::{MatrixVersion, SendAccessToken, OutgoingRequestAppserviceExt};
+        use ruma::OwnedUserId;
+
+        let user_id: OwnedUserId = self.user_id.parse().ok()?;
+        let req = ruma::api::client::to_device::send_event_to_device::v3::Request::new_raw(
+            request.event_type,
+            request.txn_id,
+            request.messages,
+        );
+        let http_req = req
+            .try_into_http_request_with_user_id::<Vec<u8>>(
+                &self.homeserver,
+                SendAccessToken::Appservice(&self.as_token),
+                &user_id,
+                &[MatrixVersion::V1_1],
+            )
+            .ok()?;
+        let response = self.send_request(http_req).await?;
+        ruma::api::client::to_device::send_event_to_device::v3::Response::try_from_http_response(response).ok()
+    }
+
 }
 
 #[cfg(test)]
