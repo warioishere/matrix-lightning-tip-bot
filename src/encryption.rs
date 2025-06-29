@@ -1,5 +1,4 @@
 use matrix_sdk_crypto::OlmMachine;
-use matrix_sdk_crypto::types::requests::OutgoingRequest;
 use std::pin::Pin;
 use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
@@ -11,6 +10,19 @@ use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
 
+use std::future::Future;
+use matrix_sdk_crypto::types::requests::OutgoingRequest;
+
+trait OlmMachineExt {
+    fn share_keys(&self) -> Pin<Box<dyn Future<Output = Vec<OutgoingRequest>> + Send + '_>>;
+}
+
+impl OlmMachineExt for OlmMachine {
+    fn share_keys(&self) -> Pin<Box<dyn Future<Output = Vec<OutgoingRequest>> + Send + '_>> {
+        Box::pin(async move { self.outgoing_requests().await.unwrap_or_default() })
+    }
+}
+
 trait StoreSave {
     fn save(&self) -> Pin<Box<dyn std::future::Future<Output = matrix_sdk_crypto::store::Result<()>> + Send + '_>>;
 }
@@ -20,11 +32,6 @@ impl StoreSave for Store {
         Box::pin(async move { self.save_changes(Changes::default()).await })
     }
 }
-
-async fn share_keys(machine: &OlmMachine) -> Vec<OutgoingRequest> {
-    machine.outgoing_requests().await.unwrap_or_default()
-}
-
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
@@ -305,7 +312,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::{get_keys};
         
-        let mut requests = share_keys(&self.machine).await;
+        let mut requests = self.machine.share_keys().await;
         requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
         for req in requests {
             match req.request() {
@@ -382,7 +389,7 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
-        let mut requests = share_keys(&self.machine).await;
+        let mut requests = self.machine.share_keys().await;
         requests.extend(self.machine.outgoing_requests().await.unwrap_or_default());
 
         for req in requests {
