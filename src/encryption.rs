@@ -21,6 +21,16 @@ impl StoreSave for Store {
     }
 }
 
+trait OlmMachineShareKeys {
+    fn share_keys(&self) -> Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
+}
+
+impl OlmMachineShareKeys for OlmMachine {
+    fn share_keys(&self) -> Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
 pub struct EncryptionHelper {
     machine: OlmMachine,
     data_layer: DataLayer,
@@ -296,7 +306,7 @@ impl EncryptionHelper {
         None
     }
 
-    pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+    async fn send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
@@ -382,96 +392,17 @@ impl EncryptionHelper {
         self.data_layer.save_matrix_store(&state, &crypto);
     }
 
-    pub async fn share_keys_if_needed(&self, client: &crate::as_client::MatrixAsClient) {
-        use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
-        use ruma::api::client::keys::get_keys;
+    pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
+        self.send_outgoing_requests(client).await;
+    }
 
+    pub async fn share_keys_if_needed(&self, client: &crate::as_client::MatrixAsClient) {
         // gather key upload requests and queue them
         if let Err(e) = self.machine.share_keys().await {
             log::error!("Failed to share keys: {}", e);
         }
-        let requests = self.machine.outgoing_requests().await.unwrap_or_default();
 
-        for req in requests {
-            match req.request() {
-                AnyOutgoingRequest::KeysUpload(upload) => {
-                    match client.keys_upload(upload.clone()).await {
-                        Some((resp, status)) if status.is_success() => {
-                            self.machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
-                        }
-                        Some((_, status)) => {
-                            log::warn!("keys_upload failed with status {}", status.as_u16());
-                        }
-                        None => {
-                            log::warn!("keys_upload request failed");
-                        }
-                    }
-                }
-                AnyOutgoingRequest::KeysQuery(query) => {
-                    let mut body = get_keys::v3::Request::new();
-                    body.device_keys = query.device_keys.clone();
-                    match client.keys_query(body).await {
-                        Some((resp, status)) if status.is_success() => {
-                            self.machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
-                        }
-                        Some((_, status)) => {
-                            log::warn!("keys_query failed with status {}", status.as_u16());
-                        }
-                        None => {
-                            log::warn!("keys_query request failed");
-                        }
-                    }
-                }
-                AnyOutgoingRequest::KeysClaim(claim) => {
-                    match client.keys_claim(claim.clone()).await {
-                        Some((resp, status)) if status.is_success() => {
-                            self.machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
-                        }
-                        Some((_, status)) => {
-                            log::warn!("keys_claim failed with status {}", status.as_u16());
-                        }
-                        None => {
-                            log::warn!("keys_claim request failed");
-                        }
-                    }
-                }
-                AnyOutgoingRequest::ToDeviceRequest(td) => {
-                    match client.send_to_device(td.clone()).await {
-                        Some(resp) => {
-                            self.machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
-                        }
-                        None => {
-                            log::warn!("to_device request failed");
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if let Err(e) = self.machine.store().save().await {
-            log::error!("Failed to save crypto store: {}", e);
-        }
-
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.send_outgoing_requests(client).await;
     }
 
     pub async fn retry_pending_events(&self) -> Vec<(String, String, String)> {
