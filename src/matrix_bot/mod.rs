@@ -69,26 +69,32 @@ impl MatrixBot {
 
     pub async fn handle_transaction_events(
         self: Arc<Self>,
-        events: Vec<Value>,
-        send_to_device: Vec<Value>,
+        timeline_events: Vec<Value>,
+        to_device_events: Vec<Value>,
         device_lists: Option<Value>,
         otk_counts: Option<Value>,
     ) {
-        let new_msgs = self.encryption.receive_to_device(send_to_device).await;
-        for (room, sender, body) in new_msgs {
-            self.clone().handle_message(&room, &sender, &body, None).await;
-        }
         if let Some(lists) = device_lists {
             self.encryption.receive_device_lists(lists).await;
         }
+
         if let Some(counts) = otk_counts {
-            self.encryption.receive_otk_counts(counts).await;
-            self
-                .encryption
-                .share_keys_if_needed(&self.as_client)
-                .await;
+             self.encryption.receive_otk_counts(counts).await;
         }
-        for ev in events {
+
+        let new_msgs = self.encryption.receive_to_device(to_device_events).await;
+        for (room, sender, body) in new_msgs {
+            self.clone().handle_message(&room, &sender, &body, None).await;
+        }
+
+        let retried = self.encryption.retry_pending_events().await;
+        for (room, sender, body) in retried {
+             self.clone().handle_message(&room, &sender, &body, None).await;
+        }
+
+        self.encryption.share_keys_if_needed(&self.as_client).await;
+
+        for ev in timeline_events {
             let event_type = ev.get("type").and_then(|v| v.as_str());
             match event_type {
                 Some("m.room.message") => {
@@ -150,6 +156,7 @@ impl MatrixBot {
             }
         }
     }
+
 
     async fn handle_message(self: Arc<Self>, room_id: &str, sender: &str, body: &str, reply_event: Option<&str>) {
         if !self.is_user_allowed(sender) {
