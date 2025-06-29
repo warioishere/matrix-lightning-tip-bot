@@ -46,13 +46,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app_token: as_token,
         server_token: hs_token,
         sender_localpart,
-        rate_limited: None,
+        rate_limited: Some(false),
         namespaces,
         protocols: vec![],
         soru_ephemeral_events: Some(true),
         ephemeral_events: None,
         receive_ephemeral: Some(true),
         msc3202: None,
+        io_element_msc4190: Some(true),
     };
 
     let yaml = serde_yaml::to_string(&registration)?;
