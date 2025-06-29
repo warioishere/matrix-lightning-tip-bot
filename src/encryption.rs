@@ -289,9 +289,19 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-                        Some((_, status)) => {
-                            log::warn!("keys_upload failed with status {}", status.as_u16());
-                        }
+			Some((_, status)) => {
+    			    log::warn!("keys_upload failed with status {}", status.as_u16());
+    			    // Mark as sent to avoid retry loop
+    			    self.machine
+        			.mark_request_as_sent(
+            			req.request_id(),
+            			&ruma::api::client::keys::upload_keys::v3::Response::new(
+                		    std::collections::BTreeMap::new()
+            			),
+        		    )
+        		    .await
+        		    .unwrap();
+			}
                         None => {
                             log::warn!("keys_upload request failed");
                         }
