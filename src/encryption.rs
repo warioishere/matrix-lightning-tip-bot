@@ -386,6 +386,10 @@ impl EncryptionHelper {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
+        // gather key upload requests and queue them
+        if let Err(e) = self.machine.share_keys().await {
+            log::error!("Failed to share keys: {}", e);
+        }
         let requests = self.machine.outgoing_requests().await.unwrap_or_default();
 
         for req in requests {
