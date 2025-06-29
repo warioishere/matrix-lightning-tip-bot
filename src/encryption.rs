@@ -401,4 +401,13 @@ impl EncryptionHelper {
         results
     }
 
+    pub async fn ensure_otk(&self, min_keys: u32) -> Result<(), Box<dyn std::error::Error>> {
+        let current = self.machine.store().count_one_time_keys().await?;
+        if current < min_keys {
+            self.machine.generate_one_time_keys(min_keys * 2).await?;
+        }
+        Ok(())
+    }
+
+
 }
