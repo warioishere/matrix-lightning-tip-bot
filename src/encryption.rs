@@ -87,15 +87,7 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-
-        // Persist store
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.save_store().await;
 
         (
             "m.room.encrypted".to_owned(),
@@ -121,15 +113,7 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-
-        // Persist store
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.save_store().await;
 
         (
             "m.room.encrypted".to_owned(),
@@ -164,13 +148,7 @@ impl EncryptionHelper {
             }
         }
 
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.save_store().await;
 
         self.retry_pending_events().await
     }
@@ -198,13 +176,7 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.save_store().await;
     }
 
     pub async fn receive_otk_counts(&self, counts_json: serde_json::Value) {
@@ -238,13 +210,7 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
+        self.save_store().await;
     }
 
     pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
@@ -383,6 +349,10 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
+        self.save_store().await;
+    }
+
+    async fn save_store(&self) {
         let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
             .await
             .unwrap_or_default();
