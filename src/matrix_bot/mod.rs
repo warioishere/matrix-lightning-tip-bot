@@ -73,9 +73,18 @@ pub mod matrix_bot {
 
         log::info!("Successfully joined room {}", room.room_id());
 
-        // Upon succesfull join send a single message
-        let plain = "Thanks for inviting me. I support the following commands:\n".to_owned()
-            + business_logic_context.get_help_content().as_str();
+        // Upon successful join send a single message
+        let is_direct = room.is_direct().await.unwrap_or(false);
+        let is_encrypted = room.encryption_state().is_encrypted();
+        let help_text = business_logic_context.get_help_content(!is_direct, is_encrypted);
+        let plain = if is_encrypted {
+            format!("{}\n\nThanks for inviting me. I support the following commands:\n{}",
+                    crate::matrix_bot::business_logic::VERIFICATION_NOTE,
+                    help_text)
+        } else {
+            format!("Thanks for inviting me. I support the following commands:\n{}",
+                    help_text)
+        };
         let html = crate::matrix_bot::utils::markdown_to_html(plain.as_str());
         let content = RoomMessageEventContent::text_html(plain, html);
 
@@ -106,9 +115,20 @@ pub mod matrix_bot {
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
                              extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
-        let msg_body = extracted_msg_body.msg_body.clone().unwrap().to_lowercase(); // We don't care about the case of the command.
+        let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
+        let mut msg_body = last_line(raw.as_str());
+        let is_direct = room.is_direct().await.unwrap_or(false);
+        let is_encrypted = room.encryption_state().is_encrypted();
 
-        if last_line(msg_body.as_str()).starts_with("!tip") {
+        if !is_direct && !msg_body.starts_with('!') {
+            return Ok(Command::None);
+        }
+
+        if msg_body.starts_with('!') {
+            msg_body = msg_body[1..].to_string();
+        }
+
+        if msg_body.starts_with("tip") {
             let replyee = extracted_msg_body
                 .formatted_msg_body
                 .as_deref()
@@ -119,16 +139,16 @@ pub mod matrix_bot {
             })?;
             tip(
                 sender,
-                last_line(msg_body.as_str()).as_str(),
+                msg_body.as_str(),
                 replyee.as_str(),
             )
-        }  else if msg_body.starts_with("!balance") {
+        }  else if msg_body.starts_with("balance") {
             balance(sender)
-        } else if msg_body.starts_with("!transactions") {
+        } else if msg_body.starts_with("transactions") {
             transactions(sender)
-        } else if msg_body.starts_with("!link-to-zeus-wallet") {
+        } else if msg_body.starts_with("link-to-zeus-wallet") {
             link_to_zeus_wallet(sender)
-        } else if msg_body.starts_with("!send") {
+        } else if msg_body.starts_with("send") {
             let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
             match msg_body {
                 Ok(msg_body) => {
@@ -149,25 +169,25 @@ pub mod matrix_bot {
                     Ok(Command::None)
                 }
             }
-        } else if msg_body.starts_with("!invoice") {
+        } else if msg_body.starts_with("invoice") {
             invoice(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!pay") {
+        } else if msg_body.starts_with("pay") {
             pay(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!help") {
-            help()
-        } else if msg_body.starts_with("!donate") {
+        } else if msg_body.starts_with("help") {
+            help(!is_direct, is_encrypted)
+        } else if msg_body.starts_with("donate") {
             donate(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!party") {
+        } else if msg_body.starts_with("party") {
             party()
-        } else if msg_body.starts_with("!version") {
+        } else if msg_body.starts_with("version") {
             version()
-        } else if msg_body.starts_with("!generate-ln-address") {
+        } else if msg_body.starts_with("generate-ln-address") {
             generate_ln_address(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!show-ln-addresses") {
+        } else if msg_body.starts_with("show-ln-addresses") {
             show_ln_addresses(sender)
-        } else if msg_body.starts_with("!fiat-to-sats") {
+        } else if msg_body.starts_with("fiat-to-sats") {
             fiat_to_sats(sender, msg_body.as_str())
-        } else if msg_body.starts_with("!sats-to-fiat") {
+        } else if msg_body.starts_with("sats-to-fiat") {
             sats_to_fiat(sender, msg_body.as_str())
         } else {
             Ok(Command::None)
@@ -451,6 +471,9 @@ pub mod matrix_bot {
                         log::info!("processing event {:?} ..", event);
 
                         let sender = event.sender.as_str();
+                        if event.sender.localpart() == business_logic_contex.config().matrix_username.as_str() {
+                            return;
+                        }
                         if !sender_allowed(&event.sender, business_logic_contex.config()) {
                             log::info!("Ignoring message from disallowed server: {}", event.sender.server_name());
                             return;
@@ -489,7 +512,7 @@ pub mod matrix_bot {
                                 log::warn!("Error occurred while extracting command {:?}..", error);
                                 let result = send_reply_to_event_in_room(&room,
                                                                          &event,
-                                                                         "I did not understand that command. Please use '!help' to list the commands. Please write usernames in plain text").await;
+                                                                         "Unknown command, please use `help` for list of commands").await;
                                 match result {
                                     Err(error) => {
                                         log::warn!("Could not even send error message due to {:?}..", error);
@@ -501,7 +524,17 @@ pub mod matrix_bot {
                             _ => { },
                         };
                         let command = command.unwrap();
-                        if command.is_none() { return } // No Command to execute
+                        if command.is_none() {
+                            let room_is_direct = room.is_direct().await.unwrap_or(false);
+                            if plain_message_body.trim_start().starts_with('!') || room_is_direct {
+                                if let Err(error) = send_reply_to_event_in_room(&room,
+                                                                                &event,
+                                                                                "Unknown command, please use `help` for list of commands").await {
+                                    log::warn!("Could not send unknown command message due to {:?}..", error);
+                                }
+                            }
+                            return
+                        } // No Command to execute
 
                         let command_reply = business_logic_contex.processing_command(command).await;
                         match command_reply {
@@ -635,5 +668,43 @@ pub mod matrix_bot {
 
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::commands::{Command, help};
+
+    fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
+        let mut msg = message.trim().to_lowercase();
+        if !is_direct && !msg.starts_with('!') {
+            return Command::None;
+        }
+        if msg.starts_with('!') {
+            msg = msg[1..].to_string();
+        }
+        if msg.starts_with("help") {
+            help(!is_direct, is_encrypted).unwrap()
+        } else {
+            Command::None
+        }
+    }
+
+    #[test]
+    fn dm_help_without_prefix() {
+        let cmd = parse_help(true, true, "help");
+        match cmd { Command::Help { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help") }
+    }
+
+    #[test]
+    fn group_help_requires_prefix() {
+        let cmd = parse_help(false, false, "help");
+        assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn group_help_with_prefix() {
+        let cmd = parse_help(false, true, "!help");
+        match cmd { Command::Help { with_prefix, include_note } => { assert!(with_prefix); assert!(include_note); }, _ => panic!("expected help") }
     }
 }

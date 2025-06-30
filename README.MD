@@ -28,6 +28,8 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
 * **!version** - Print the version of this bot: `!version`
 
+In direct messages with the bot, the leading `!` can be omitted for all commands.
+
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
 

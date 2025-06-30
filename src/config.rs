@@ -48,8 +48,8 @@ pub mod config {
         ).unwrap();
 
         let matches = Command::new("LN-Matrix-Bot")
-            .version("0.8.1")
-            .author("AE")
+            .version("0.8.5")
+            .author("warioishere")
             .about("LN-Matrix-Bot")
             .arg(Arg::new("matrix-server")
                 .long("matrix-server")
