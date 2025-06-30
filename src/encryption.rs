@@ -1,7 +1,7 @@
 use matrix_sdk_crypto::OlmMachine;
 use std::pin::Pin;
 use matrix_sdk_sqlite::SqliteCryptoStore;
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, OwnedTransactionId};
 use tokio::sync::Mutex;
 use crate::config::config::Config;
 
@@ -22,6 +22,7 @@ impl StoreSave for Store {
 pub struct EncryptionHelper {
     machine: OlmMachine,
     pending: tokio::sync::Mutex<Vec<(OwnedRoomId, serde_json::Value)>>,
+    failed: tokio::sync::Mutex<std::collections::HashSet<OwnedTransactionId>>,
 }
 
 impl EncryptionHelper {
@@ -53,7 +54,11 @@ impl EncryptionHelper {
             log::error!("Failed to persist crypto store: {}", e);
         }
 
-        EncryptionHelper { machine, pending: Mutex::new(Vec::new()) }
+        EncryptionHelper {
+            machine,
+            pending: Mutex::new(Vec::new()),
+            failed: Mutex::new(std::collections::HashSet::new()),
+        }
     }
 
     pub async fn share_room_key_with_user(
@@ -314,7 +319,13 @@ impl EncryptionHelper {
         use ruma::api::client::keys::get_keys;
 
         let requests = self.machine.outgoing_requests().await.unwrap_or_default();
-        for req in requests {
+        let failed = self.failed.lock().await;
+        let to_process: Vec<_> = requests
+            .into_iter()
+            .filter(|r| !failed.contains(r.request_id()))
+            .collect();
+        drop(failed);
+        for req in to_process {
             match req.request() {
                 AnyOutgoingRequest::KeysUpload(upload) => {
                     match client.keys_upload(upload.clone()).await {
@@ -324,21 +335,14 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-			Some((_, status)) => {
-    			    log::warn!("keys_upload failed with status {}", status.as_u16());
-    			    // Mark as sent to avoid retry loop
-    			    self.machine
-        			.mark_request_as_sent(
-            			req.request_id(),
-            			&ruma::api::client::keys::upload_keys::v3::Response::new(
-                		    std::collections::BTreeMap::new()
-            			),
-        		    )
-        		    .await
-        		    .unwrap();
-			}
+                        Some((body, status)) => {
+                            log::warn!("keys_upload failed with status {}", status.as_u16());
+                            log::debug!("keys_upload error body: {:?}", body);
+                            self.failed.lock().await.insert(req.request_id().to_owned());
+                        }
                         None => {
                             log::warn!("keys_upload request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -352,11 +356,14 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-                        Some((_, status)) => {
+                        Some((body, status)) => {
                             log::warn!("keys_query failed with status {}", status.as_u16());
+                            log::debug!("keys_query error body: {:?}", body);
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                         None => {
                             log::warn!("keys_query request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -368,11 +375,14 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-                        Some((_, status)) => {
+                        Some((body, status)) => {
                             log::warn!("keys_claim failed with status {}", status.as_u16());
+                            log::debug!("keys_claim error body: {:?}", body);
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                         None => {
                             log::warn!("keys_claim request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -386,6 +396,7 @@ impl EncryptionHelper {
                         }
                         None => {
                             log::warn!("to_device request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
