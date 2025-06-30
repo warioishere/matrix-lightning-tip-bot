@@ -1,11 +1,9 @@
 use matrix_sdk_crypto::OlmMachine;
 use std::pin::Pin;
-use matrix_sdk_sqlite::{SqliteCryptoStore, STATE_STORE_DATABASE_NAME};
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId};
-use tempfile::TempDir;
-use tokio::fs;
+use matrix_sdk_sqlite::SqliteCryptoStore;
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, OwnedTransactionId};
+use ruma::api::IncomingResponse;
 use tokio::sync::Mutex;
-use crate::data_layer::data_layer::DataLayer;
 use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
@@ -24,13 +22,13 @@ impl StoreSave for Store {
 
 pub struct EncryptionHelper {
     machine: OlmMachine,
-    data_layer: DataLayer,
-    dir: TempDir,
     pending: tokio::sync::Mutex<Vec<(OwnedRoomId, serde_json::Value)>>,
+    failed: tokio::sync::Mutex<std::collections::HashSet<OwnedTransactionId>>,
+    user_locks: tokio::sync::Mutex<std::collections::HashMap<OwnedUserId, std::sync::Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl EncryptionHelper {
-    pub async fn new(data_layer: &DataLayer, config: &Config) -> Self {
+    pub async fn new(config: &Config) -> Self {
         let user_id: OwnedUserId = format!(
             "@{}:{}",
             config.registration.sender_localpart,
@@ -43,21 +41,139 @@ impl EncryptionHelper {
         .unwrap();
         let device_id: OwnedDeviceId = crate::as_client::DEVICE_ID.into();
 
-        let dir = tempfile::tempdir().expect("create temp dir");
+        let db_path = std::path::Path::new(&config.database_url);
+        let crypto_dir = db_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let crypto_file = crypto_dir.join("crypto.sqlite3");
 
-        if let Some((state, crypto)) = data_layer.load_matrix_store() {
-            let _ = fs::write(dir.path().join(STATE_STORE_DATABASE_NAME), state).await;
-            let _ = fs::write(dir.path().join("matrix-sdk-crypto.sqlite3"), crypto).await;
-        }
-
-        let store = SqliteCryptoStore::open(dir.path(), None)
+        let store = SqliteCryptoStore::open(&crypto_file, None)
             .await
             .expect("open crypto store");
         let machine = OlmMachine::with_store(&user_id, &device_id, store, None)
             .await
             .expect("create olm machine");
 
-        EncryptionHelper { machine, data_layer: data_layer.clone(), dir, pending: Mutex::new(Vec::new()) }
+        if let Err(e) = machine.store().save().await {
+            log::error!("Failed to persist crypto store: {}", e);
+        }
+
+        EncryptionHelper {
+            machine,
+            pending: Mutex::new(Vec::new()),
+            failed: Mutex::new(std::collections::HashSet::new()),
+            user_locks: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub async fn share_room_key_with_user(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        client: &crate::as_client::MatrixAsClient,
+    ) {
+        use matrix_sdk_crypto::EncryptionSettings;
+
+        let room_id: OwnedRoomId = match room_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("Invalid room id {}: {}", room_id, e);
+                return;
+            }
+        };
+        let user_id: OwnedUserId = match user_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("Invalid user id {}: {}", user_id, e);
+                return;
+            }
+        };
+
+        let user_lock = {
+            let mut map = self.user_locks.lock().await;
+            map.entry(user_id.clone())
+                .or_insert_with(|| std::sync::Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = user_lock.lock().await;
+
+        if let Err(e) = self
+            .machine
+            .update_tracked_users(std::iter::once(user_id.as_ref()))
+            .await
+        {
+            log::error!("Failed to update tracked users: {}", e);
+        }
+
+        // ensure missing Olm sessions are created before sharing
+        if let Ok(Some((txn_id, claim))) = self
+            .machine
+            .get_missing_sessions(std::iter::once(user_id.as_ref()))
+            .await
+        {
+            if let Some((resp, status)) = client.keys_claim(claim.clone()).await {
+                if status.is_success() {
+                    if let Err(e) = self
+                        .machine
+                        .mark_request_as_sent(&txn_id, &resp)
+                        .await
+                    {
+                        log::warn!("Failed to mark keys_claim as sent: {}", e);
+                    }
+                } else {
+                    log::warn!("keys_claim failed with status {}", status.as_u16());
+                }
+            } else {
+                log::warn!("Failed to send keys_claim request");
+            }
+        }
+
+        // Fetch device keys for the newly tracked user and process claims
+        self.process_and_send_outgoing_requests(client).await;
+
+        loop {
+            match self
+                .machine
+                .share_room_key(&room_id, std::iter::once(user_id.as_ref()), EncryptionSettings::default())
+                .await
+            {
+                Ok(requests) => {
+                    for req in requests {
+                        let request = (*req).clone();
+                        if let Some(resp) = client.send_to_device(request).await {
+                            if let Err(e) = self.machine.mark_request_as_sent(&req.txn_id, &resp).await {
+                                log::warn!("Failed to mark request as sent: {}", e);
+                            }
+                        } else {
+                            log::warn!("Failed to send to-device request");
+                        }
+                    }
+                    self.process_and_send_outgoing_requests(client).await;
+                    if let Err(e) = self.machine.store().save().await {
+                        log::error!("Failed to save crypto store: {}", e);
+                    }
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("share_room_key failed: {}", e);
+                    let before = self
+                        .machine
+                        .outgoing_requests()
+                        .await
+                        .map(|r| r.len())
+                        .unwrap_or(0);
+                    self.process_and_send_outgoing_requests(client).await;
+                    let after = self
+                        .machine
+                        .outgoing_requests()
+                        .await
+                        .map(|r| r.len())
+                        .unwrap_or(0);
+                    if after == 0 || after == before {
+                        log::error!("Failed to share room key after processing outgoing requests: {}", e);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub async fn encrypt_text(&self, room_id: &str, body: &str) -> (String, serde_json::Value) {
@@ -77,8 +193,6 @@ impl EncryptionHelper {
         if let Err(e) = self.machine.store().save().await {
             log::error!("Failed to save crypto store: {}", e);
         }
-
-        self.save_store().await;
 
         (
             "m.room.encrypted".to_owned(),
@@ -104,8 +218,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
-
         (
             "m.room.encrypted".to_owned(),
             serde_json::to_value(encrypted).expect("serialize encrypted"),
@@ -113,14 +225,28 @@ impl EncryptionHelper {
     }
 
     pub async fn receive_to_device(&self, events: Vec<serde_json::Value>) -> Vec<(String, String, String)> {
-        use matrix_sdk_crypto::{EncryptionSyncChanges};
+        use matrix_sdk_crypto::EncryptionSyncChanges;
         use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
         use std::collections::BTreeMap;
+
+        log::debug!("receive_to_device events: {:?}", events);
 
         let raw_events: Vec<Raw<AnyToDeviceEvent>> = events
             .into_iter()
             .filter_map(|ev| serde_json::value::to_raw_value(&ev).ok().map(Raw::from_json))
             .collect();
+
+        for raw_ev in &raw_events {
+            if let Ok(ev) = raw_ev.deserialize() {
+                if let AnyToDeviceEvent::RoomKey(key) = ev {
+                    log::debug!(
+                        "Received room key for room {} session {}",
+                        key.content.room_id,
+                        key.content.session_id
+                    );
+                }
+            }
+        }
 
         let changes = EncryptionSyncChanges {
             to_device_events: raw_events,
@@ -138,8 +264,6 @@ impl EncryptionHelper {
                 log::error!("Failed to save crypto store: {}", e);
             }
         }
-
-        self.save_store().await;
 
         self.retry_pending_events().await
     }
@@ -167,7 +291,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn receive_otk_counts(&self, counts_json: serde_json::Value) {
@@ -201,7 +324,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
@@ -246,13 +368,6 @@ impl EncryptionHelper {
         }
 
 
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
 
         let event = decrypted.event.deserialize().ok()?;
         if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(orig)) = event {
@@ -264,46 +379,55 @@ impl EncryptionHelper {
     }
 
 
-    async fn save_store(&self) {
-        let state = fs::read(self.dir.path().join(STATE_STORE_DATABASE_NAME))
-            .await
-            .unwrap_or_default();
-        let crypto = fs::read(self.dir.path().join("matrix-sdk-crypto.sqlite3"))
-            .await
-            .unwrap_or_default();
-        self.data_layer.save_matrix_store(&state, &crypto);
-    }
 
     pub async fn process_and_send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
 
         let requests = self.machine.outgoing_requests().await.unwrap_or_default();
-        for req in requests {
+        let failed = self.failed.lock().await;
+        let to_process: Vec<_> = requests
+            .into_iter()
+            .filter(|r| !failed.contains(r.request_id()))
+            .collect();
+        drop(failed);
+        for req in to_process {
             match req.request() {
                 AnyOutgoingRequest::KeysUpload(upload) => {
                     match client.keys_upload(upload.clone()).await {
                         Some((resp, status)) if status.is_success() => {
-                            self.machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
+                            if let Ok(parsed) = ruma::api::client::keys::upload_keys::v3::Response::try_from_http_response(resp) {
+                                self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &parsed)
+                                    .await
+                                    .unwrap();
+                            } else {
+                                log::warn!("Failed to parse keys_upload response");
+                            }
                         }
-			Some((_, status)) => {
-    			    log::warn!("keys_upload failed with status {}", status.as_u16());
-    			    // Mark as sent to avoid retry loop
-    			    self.machine
-        			.mark_request_as_sent(
-            			req.request_id(),
-            			&ruma::api::client::keys::upload_keys::v3::Response::new(
-                		    std::collections::BTreeMap::new()
-            			),
-        		    )
-        		    .await
-        		    .unwrap();
-			}
+                        Some((resp, status)) => {
+                            let body = String::from_utf8_lossy(resp.body());
+                            log::warn!("keys_upload failed with status {}", status.as_u16());
+                            log::debug!("keys_upload error body: {}", body);
+                            if status.as_u16() == 400 {
+                                use ruma::api::client::keys::upload_keys::v3 as upload;
+                                use std::collections::BTreeMap;
+                                let parsed = upload::Response::new(BTreeMap::new());
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &parsed)
+                                    .await
+                                {
+                                    log::warn!("Failed to mark failed keys_upload as sent: {}", e);
+                                }
+                            } else {
+                                self.failed.lock().await.insert(req.request_id().to_owned());
+                            }
+                        }
                         None => {
                             log::warn!("keys_upload request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -317,11 +441,14 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-                        Some((_, status)) => {
+                        Some((body, status)) => {
                             log::warn!("keys_query failed with status {}", status.as_u16());
+                            log::debug!("keys_query error body: {:?}", body);
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                         None => {
                             log::warn!("keys_query request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -333,11 +460,14 @@ impl EncryptionHelper {
                                 .await
                                 .unwrap();
                         }
-                        Some((_, status)) => {
+                        Some((body, status)) => {
                             log::warn!("keys_claim failed with status {}", status.as_u16());
+                            log::debug!("keys_claim error body: {:?}", body);
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                         None => {
                             log::warn!("keys_claim request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -351,6 +481,7 @@ impl EncryptionHelper {
                         }
                         None => {
                             log::warn!("to_device request failed");
+                            self.failed.lock().await.insert(req.request_id().to_owned());
                         }
                     }
                 }
@@ -361,7 +492,6 @@ impl EncryptionHelper {
             log::error!("Failed to save crypto store: {}", e);
         }
 
-        self.save_store().await;
     }
 
     pub async fn process_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {

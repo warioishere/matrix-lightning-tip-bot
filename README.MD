@@ -33,7 +33,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
 
-The bot stores its session data locally. Encryption keys are kept in the `matrix_store` table and messages are encrypted on the application service side without calling the client `/sync` API.
+The bot stores its session data locally. Encryption keys are saved in a persistent `crypto.sqlite3` file and messages are encrypted on the application service side without calling the client `/sync` API.
 
 Running your own instance is done by:
 1. Install prequisites
@@ -125,7 +125,7 @@ used for creating lightning addresses without the bearer token:
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
 
-Encrypted client keys are automatically saved in the database's `matrix_store` table.
+Encrypted client keys are automatically saved in the persistent `crypto.sqlite3` database next to your application database.
 At startup the bot registers a device using [MSC4190](https://github.com/matrix-org/matrix-spec-proposals/pull/4190)
 and thereafter authenticates all Client-Server API requests solely with the application service token.
 No interactive login or access token handling is performed by the bot itself.

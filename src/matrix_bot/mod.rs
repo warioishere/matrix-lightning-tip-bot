@@ -37,7 +37,7 @@ impl MatrixBot {
             log::error!("Failed to create MSC4190 device: {}", e);
         }
 
-        let encryption = Arc::new(EncryptionHelper::new(&data_layer, config).await);
+        let encryption = Arc::new(EncryptionHelper::new(config).await);
         MatrixBot {
             business_logic_context: ctx,
             as_client,
@@ -82,9 +82,12 @@ impl MatrixBot {
              self.encryption.receive_otk_counts(counts).await;
         }
 
-        let new_msgs = self.encryption.receive_to_device(to_device_events).await;
-        for (room, sender, body) in new_msgs {
-            self.clone().handle_message(&room, &sender, &body, None).await;
+        log::debug!("to_device_events: {:?}", to_device_events);
+        if !to_device_events.is_empty() {
+            let new_msgs = self.encryption.receive_to_device(to_device_events).await;
+            for (room, sender, body) in new_msgs {
+                self.clone().handle_message(&room, &sender, &body, None).await;
+            }
         }
 
         let retried = self.encryption.retry_pending_events().await;
@@ -147,7 +150,10 @@ impl MatrixBot {
                             if state_key == self.as_client.user_id() && self.is_user_allowed(inviter) {
                                 self.as_client.accept_invite(room_id).await;
                                 let welcome = self.business_logic_context.get_help_content();
-                                self.clone().send_markdown_message(room_id, &welcome).await;
+                                self
+                                    .clone()
+                                    .send_markdown_message(room_id, &welcome, Some(inviter))
+                                    .await;
                             }
                         }
                     }
@@ -170,16 +176,18 @@ impl MatrixBot {
                         Ok(reply) => {
                             if let Some(text) = reply.text {
                                 if reply.markdown {
-                                    self.send_markdown_message(room_id, &text).await;
-                                } else {
-                                    self.send_message(room_id, &text).await;
-                                }
+                                self.send_markdown_message(room_id, &text, Some(sender)).await;
+                            } else {
+                                self.send_message(room_id, &text, Some(sender)).await;
+                            }
                             }
                             if let Some(image) = reply.image {
                                 self.send_image(room_id, "qr.png", image).await;
                             }
                             if let (Some(hash), Some(key)) = (reply.payment_hash, reply.in_key) {
-                                self.clone().spawn_invoice_watch(room_id.to_string(), key, hash);
+                                self
+                                    .clone()
+                                    .spawn_invoice_watch(room_id.to_string(), sender.to_string(), key, hash);
                             }
                             if let (Some(dm), Some(user)) = (reply.receiver_message, reply.receiver_id) {
                                 self.as_client.send_dm(&user, &dm).await;
@@ -187,7 +195,7 @@ impl MatrixBot {
                         }
                         Err(err) => {
                             log::warn!("Error processing command: {:?}", err);
-                            let _ = self.send_message(room_id, "I encountered an error").await;
+                            let _ = self.send_message(room_id, "I encountered an error", Some(sender)).await;
                         }
                     }
                 }
@@ -269,8 +277,14 @@ impl MatrixBot {
         encrypted
     }
 
-    async fn send_message(&self, room_id: &str, body: &str) {
+    async fn send_message(&self, room_id: &str, body: &str, user_id: Option<&str>) {
         if self.room_is_encrypted(room_id).await {
+            if let Some(user) = user_id {
+                self
+                    .encryption
+                    .share_room_key_with_user(room_id, user, &self.as_client)
+                    .await;
+            }
             let (event_type, content) = self.encryption.encrypt_text(room_id, body).await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
@@ -278,10 +292,16 @@ impl MatrixBot {
         }
     }
 
-    async fn send_markdown_message(&self, room_id: &str, body: &str) {
+    async fn send_markdown_message(&self, room_id: &str, body: &str, user_id: Option<&str>) {
         use crate::matrix_bot::utils::markdown_to_html;
         let html = markdown_to_html(body);
         if self.room_is_encrypted(room_id).await {
+            if let Some(user) = user_id {
+                self
+                    .encryption
+                    .share_room_key_with_user(room_id, user, &self.as_client)
+                    .await;
+            }
             let (event_type, content) = self.encryption.encrypt_html(room_id, body, &html).await;
             self.as_client.send_raw(room_id, &event_type, content).await;
         } else {
@@ -299,14 +319,26 @@ impl MatrixBot {
         }
     }
 
-    fn spawn_invoice_watch(self: Arc<Self>, room: String, in_key: String, payment_hash: String) {
+    fn spawn_invoice_watch(
+        self: Arc<Self>,
+        room: String,
+        user: String,
+        in_key: String,
+        payment_hash: String,
+    ) {
         let bot = self.clone();
         tokio::spawn(async move {
-            Self::watch_invoice(room, in_key, payment_hash, bot).await;
+            Self::watch_invoice(room, user, in_key, payment_hash, bot).await;
         });
     }
 
-    async fn watch_invoice(room: String, in_key: String, payment_hash: String, bot: Arc<Self>) {
+    async fn watch_invoice(
+        room: String,
+        user: String,
+        in_key: String,
+        payment_hash: String,
+        bot: Arc<Self>,
+    ) {
         for _ in 0..30 {
             match bot
                 .business_logic_context
@@ -315,7 +347,7 @@ impl MatrixBot {
                 .await
             {
                 Ok(true) => {
-                    let _ = bot.send_message(&room, "Invoice paid").await;
+                    let _ = bot.send_message(&room, "Invoice paid", Some(&user)).await;
                     return;
                 }
                 Ok(false) => {}
