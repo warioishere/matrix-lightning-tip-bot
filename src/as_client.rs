@@ -369,7 +369,7 @@ impl MatrixAsClient {
     pub async fn keys_upload(
         &self,
         request: ruma::api::client::keys::upload_keys::v3::Request,
-    ) -> Option<(ruma::api::client::keys::upload_keys::v3::Response, ruma::exports::http::StatusCode)> {
+    ) -> Option<(ruma::exports::http::Response<Vec<u8>>, ruma::exports::http::StatusCode)> {
         use ruma::api::{MatrixVersion, SendAccessToken, OutgoingRequestAppserviceExt};
         use ruma::OwnedUserId;
 
@@ -384,8 +384,7 @@ impl MatrixAsClient {
             .ok()?;
         let response = self.send_request(http_req).await?;
         let status = response.status();
-        let parsed = ruma::api::client::keys::upload_keys::v3::Response::try_from_http_response(response).ok()?;
-        Some((parsed, status))
+        Some((response, status))
     }
 
     pub async fn keys_query(

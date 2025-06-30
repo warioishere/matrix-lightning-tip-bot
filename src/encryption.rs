@@ -2,6 +2,7 @@ use matrix_sdk_crypto::OlmMachine;
 use std::pin::Pin;
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, OwnedTransactionId};
+use ruma::api::IncomingResponse;
 use tokio::sync::Mutex;
 use crate::config::config::Config;
 
@@ -330,22 +331,27 @@ impl EncryptionHelper {
                 AnyOutgoingRequest::KeysUpload(upload) => {
                     match client.keys_upload(upload.clone()).await {
                         Some((resp, status)) if status.is_success() => {
-                            self
-                                .machine
-                                .mark_request_as_sent(req.request_id(), &resp)
-                                .await
-                                .unwrap();
+                            if let Ok(parsed) = ruma::api::client::keys::upload_keys::v3::Response::try_from_http_response(resp) {
+                                self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &parsed)
+                                    .await
+                                    .unwrap();
+                            } else {
+                                log::warn!("Failed to parse keys_upload response");
+                            }
                         }
-                        Some((body, status)) => {
+                        Some((resp, status)) => {
+                            let body = String::from_utf8_lossy(resp.body());
                             log::warn!("keys_upload failed with status {}", status.as_u16());
-                            log::debug!("keys_upload error body: {:?}", body);
+                            log::debug!("keys_upload error body: {}", body);
                             if status.as_u16() == 400 {
                                 use ruma::api::client::keys::upload_keys::v3 as upload;
                                 use std::collections::BTreeMap;
-                                let resp = upload::Response::new(BTreeMap::new());
+                                let parsed = upload::Response::new(BTreeMap::new());
                                 if let Err(e) = self
                                     .machine
-                                    .mark_request_as_sent(req.request_id(), &resp)
+                                    .mark_request_as_sent(req.request_id(), &parsed)
                                     .await
                                 {
                                     log::warn!("Failed to mark failed keys_upload as sent: {}", e);
