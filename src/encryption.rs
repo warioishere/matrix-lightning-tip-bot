@@ -24,6 +24,7 @@ pub struct EncryptionHelper {
     machine: OlmMachine,
     pending: tokio::sync::Mutex<Vec<(OwnedRoomId, serde_json::Value)>>,
     failed: tokio::sync::Mutex<std::collections::HashSet<OwnedTransactionId>>,
+    user_locks: tokio::sync::Mutex<std::collections::HashMap<OwnedUserId, std::sync::Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl EncryptionHelper {
@@ -59,6 +60,7 @@ impl EncryptionHelper {
             machine,
             pending: Mutex::new(Vec::new()),
             failed: Mutex::new(std::collections::HashSet::new()),
+            user_locks: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -85,6 +87,14 @@ impl EncryptionHelper {
             }
         };
 
+        let user_lock = {
+            let mut map = self.user_locks.lock().await;
+            map.entry(user_id.clone())
+                .or_insert_with(|| std::sync::Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = user_lock.lock().await;
+
         if let Err(e) = self
             .machine
             .update_tracked_users(std::iter::once(user_id.as_ref()))
@@ -93,7 +103,30 @@ impl EncryptionHelper {
             log::error!("Failed to update tracked users: {}", e);
         }
 
-        // Fetch device keys for the newly tracked user
+        // ensure missing Olm sessions are created before sharing
+        if let Ok(Some((txn_id, claim))) = self
+            .machine
+            .get_missing_sessions(std::iter::once(user_id.as_ref()))
+            .await
+        {
+            if let Some((resp, status)) = client.keys_claim(claim.clone()).await {
+                if status.is_success() {
+                    if let Err(e) = self
+                        .machine
+                        .mark_request_as_sent(&txn_id, &resp)
+                        .await
+                    {
+                        log::warn!("Failed to mark keys_claim as sent: {}", e);
+                    }
+                } else {
+                    log::warn!("keys_claim failed with status {}", status.as_u16());
+                }
+            } else {
+                log::warn!("Failed to send keys_claim request");
+            }
+        }
+
+        // Fetch device keys for the newly tracked user and process claims
         self.process_and_send_outgoing_requests(client).await;
 
         loop {
