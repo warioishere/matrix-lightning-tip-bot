@@ -93,29 +93,52 @@ impl EncryptionHelper {
             log::error!("Failed to update tracked users: {}", e);
         }
 
-        match self
-            .machine
-            .share_room_key(&room_id, std::iter::once(user_id.as_ref()), EncryptionSettings::default())
-            .await
-        {
-            Ok(requests) => {
-                for req in requests {
-                    let request = (*req).clone();
-                    if let Some(resp) = client.send_to_device(request).await {
-                        if let Err(e) = self.machine.mark_request_as_sent(&req.txn_id, &resp).await {
-                            log::warn!("Failed to mark request as sent: {}", e);
+        // Fetch device keys for the newly tracked user
+        self.process_and_send_outgoing_requests(client).await;
+
+        loop {
+            match self
+                .machine
+                .share_room_key(&room_id, std::iter::once(user_id.as_ref()), EncryptionSettings::default())
+                .await
+            {
+                Ok(requests) => {
+                    for req in requests {
+                        let request = (*req).clone();
+                        if let Some(resp) = client.send_to_device(request).await {
+                            if let Err(e) = self.machine.mark_request_as_sent(&req.txn_id, &resp).await {
+                                log::warn!("Failed to mark request as sent: {}", e);
+                            }
+                        } else {
+                            log::warn!("Failed to send to-device request");
                         }
-                    } else {
-                        log::warn!("Failed to send to-device request");
+                    }
+                    self.process_and_send_outgoing_requests(client).await;
+                    if let Err(e) = self.machine.store().save().await {
+                        log::error!("Failed to save crypto store: {}", e);
+                    }
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("share_room_key failed: {}", e);
+                    let before = self
+                        .machine
+                        .outgoing_requests()
+                        .await
+                        .map(|r| r.len())
+                        .unwrap_or(0);
+                    self.process_and_send_outgoing_requests(client).await;
+                    let after = self
+                        .machine
+                        .outgoing_requests()
+                        .await
+                        .map(|r| r.len())
+                        .unwrap_or(0);
+                    if after == 0 || after == before {
+                        log::error!("Failed to share room key after processing outgoing requests: {}", e);
+                        break;
                     }
                 }
-                self.process_and_send_outgoing_requests(client).await;
-                if let Err(e) = self.machine.store().save().await {
-                    log::error!("Failed to save crypto store: {}", e);
-                }
-            }
-            Err(e) => {
-                log::error!("Error sharing room key: {}", e);
             }
         }
     }
