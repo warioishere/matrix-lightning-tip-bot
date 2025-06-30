@@ -85,6 +85,14 @@ impl EncryptionHelper {
             }
         };
 
+        if let Err(e) = self
+            .machine
+            .update_tracked_users(std::iter::once(user_id.as_ref()))
+            .await
+        {
+            log::error!("Failed to update tracked users: {}", e);
+        }
+
         match self
             .machine
             .share_room_key(&room_id, std::iter::once(user_id.as_ref()), EncryptionSettings::default())
@@ -101,6 +109,7 @@ impl EncryptionHelper {
                         log::warn!("Failed to send to-device request");
                     }
                 }
+                self.process_and_send_outgoing_requests(client).await;
                 if let Err(e) = self.machine.store().save().await {
                     log::error!("Failed to save crypto store: {}", e);
                 }
