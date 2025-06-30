@@ -49,6 +49,10 @@ impl EncryptionHelper {
             .await
             .expect("create olm machine");
 
+        if let Err(e) = machine.store().save().await {
+            log::error!("Failed to persist crypto store: {}", e);
+        }
+
         EncryptionHelper { machine, pending: Mutex::new(Vec::new()) }
     }
 
