@@ -82,9 +82,12 @@ impl MatrixBot {
              self.encryption.receive_otk_counts(counts).await;
         }
 
-        let new_msgs = self.encryption.receive_to_device(to_device_events).await;
-        for (room, sender, body) in new_msgs {
-            self.clone().handle_message(&room, &sender, &body, None).await;
+        log::debug!("to_device_events: {:?}", to_device_events);
+        if !to_device_events.is_empty() {
+            let new_msgs = self.encryption.receive_to_device(to_device_events).await;
+            for (room, sender, body) in new_msgs {
+                self.clone().handle_message(&room, &sender, &body, None).await;
+            }
         }
 
         let retried = self.encryption.retry_pending_events().await;

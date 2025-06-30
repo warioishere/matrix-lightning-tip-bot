@@ -40,8 +40,9 @@ impl EncryptionHelper {
 
         let db_path = std::path::Path::new(&config.database_url);
         let crypto_dir = db_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let crypto_file = crypto_dir.join("crypto.sqlite3");
 
-        let store = SqliteCryptoStore::open(crypto_dir, None)
+        let store = SqliteCryptoStore::open(&crypto_file, None)
             .await
             .expect("open crypto store");
         let machine = OlmMachine::with_store(&user_id, &device_id, store, None)
@@ -100,14 +101,28 @@ impl EncryptionHelper {
     }
 
     pub async fn receive_to_device(&self, events: Vec<serde_json::Value>) -> Vec<(String, String, String)> {
-        use matrix_sdk_crypto::{EncryptionSyncChanges};
+        use matrix_sdk_crypto::EncryptionSyncChanges;
         use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
         use std::collections::BTreeMap;
+
+        log::debug!("receive_to_device events: {:?}", events);
 
         let raw_events: Vec<Raw<AnyToDeviceEvent>> = events
             .into_iter()
             .filter_map(|ev| serde_json::value::to_raw_value(&ev).ok().map(Raw::from_json))
             .collect();
+
+        for raw_ev in &raw_events {
+            if let Ok(ev) = raw_ev.deserialize() {
+                if let AnyToDeviceEvent::RoomKey(key) = ev {
+                    log::debug!(
+                        "Received room key for room {} session {}",
+                        key.content.room_id,
+                        key.content.session_id
+                    );
+                }
+            }
+        }
 
         let changes = EncryptionSyncChanges {
             to_device_events: raw_events,
