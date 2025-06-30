@@ -56,6 +56,55 @@ impl EncryptionHelper {
         EncryptionHelper { machine, pending: Mutex::new(Vec::new()) }
     }
 
+    pub async fn share_room_key_with_user(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        client: &crate::as_client::MatrixAsClient,
+    ) {
+        use matrix_sdk_crypto::EncryptionSettings;
+
+        let room_id: OwnedRoomId = match room_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("Invalid room id {}: {}", room_id, e);
+                return;
+            }
+        };
+        let user_id: OwnedUserId = match user_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("Invalid user id {}: {}", user_id, e);
+                return;
+            }
+        };
+
+        match self
+            .machine
+            .share_room_key(&room_id, std::iter::once(user_id.as_ref()), EncryptionSettings::default())
+            .await
+        {
+            Ok(requests) => {
+                for req in requests {
+                    let request = (*req).clone();
+                    if let Some(resp) = client.send_to_device(request).await {
+                        if let Err(e) = self.machine.mark_request_as_sent(&req.txn_id, &resp).await {
+                            log::warn!("Failed to mark request as sent: {}", e);
+                        }
+                    } else {
+                        log::warn!("Failed to send to-device request");
+                    }
+                }
+                if let Err(e) = self.machine.store().save().await {
+                    log::error!("Failed to save crypto store: {}", e);
+                }
+            }
+            Err(e) => {
+                log::error!("Error sharing room key: {}", e);
+            }
+        }
+    }
+
     pub async fn encrypt_text(&self, room_id: &str, body: &str) -> (String, serde_json::Value) {
         use ruma::events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent};
 
