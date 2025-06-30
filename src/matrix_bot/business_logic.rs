@@ -27,6 +27,16 @@ const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amou
 **!sats-to-fiat** - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
 **!version** - Print the version of this bot: !version";
 
+fn help_commands(with_prefix: bool) -> String {
+    if with_prefix {
+        HELP_COMMANDS.to_string()
+    } else {
+        HELP_COMMANDS.replace('!', "")
+    }
+}
+
+pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
+
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     pub lnbits_client: LNBitsClient,
@@ -50,12 +60,21 @@ impl BusinessLogicContext {
         &self.config
     }
 
-    pub fn get_help_content(&self) -> String {
-        format!(
-            "Matrix-Lightning-Tip-Bot {}\n{}",
-            env!("CARGO_PKG_VERSION"),
-            HELP_COMMANDS
-        )
+    pub fn get_help_content(&self, with_prefix: bool, include_note: bool) -> String {
+        if include_note {
+            format!(
+                "{}\n\nMatrix-Lightning-Tip-Bot {}\n{}",
+                VERIFICATION_NOTE,
+                env!("CARGO_PKG_VERSION"),
+                help_commands(with_prefix)
+            )
+        } else {
+            format!(
+                "Matrix-Lightning-Tip-Bot {}\n{}",
+                env!("CARGO_PKG_VERSION"),
+                help_commands(with_prefix)
+            )
+        }
     }
 
     pub async fn processing_command(&self,
@@ -97,8 +116,8 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_pay(sender.as_str(), invoice.as_str()).await,
                           "Could not process pay")
             },
-            Command::Help { } => {
-                try_with!(self.do_process_help().await,
+            Command::Help { with_prefix, include_note } => {
+                try_with!(self.do_process_help(with_prefix, include_note).await,
                           "Could not process help")
             },
             Command::Donate { sender, amount } => {
@@ -347,9 +366,9 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(format!("{:?} payed an invoice", sender).as_str()))
     }
 
-    async fn do_process_help(&self) -> Result<CommandReply, SimpleError> {
+    async fn do_process_help(&self, with_prefix: bool, include_note: bool) -> Result<CommandReply, SimpleError> {
         log::info!("processing help command ..");
-        Ok(CommandReply::text_only(self.get_help_content().as_str()))
+        Ok(CommandReply::text_only(self.get_help_content(with_prefix, include_note).as_str()))
     }
 
     async fn do_process_party(&self) -> Result<CommandReply, SimpleError> {
