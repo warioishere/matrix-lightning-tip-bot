@@ -330,7 +330,8 @@ impl EncryptionHelper {
                 AnyOutgoingRequest::KeysUpload(upload) => {
                     match client.keys_upload(upload.clone()).await {
                         Some((resp, status)) if status.is_success() => {
-                            self.machine
+                            self
+                                .machine
                                 .mark_request_as_sent(req.request_id(), &resp)
                                 .await
                                 .unwrap();
@@ -338,7 +339,20 @@ impl EncryptionHelper {
                         Some((body, status)) => {
                             log::warn!("keys_upload failed with status {}", status.as_u16());
                             log::debug!("keys_upload error body: {:?}", body);
-                            self.failed.lock().await.insert(req.request_id().to_owned());
+                            if status.as_u16() == 400 {
+                                use ruma::api::client::keys::upload_keys::v3 as upload;
+                                use std::collections::BTreeMap;
+                                let resp = upload::Response::new(BTreeMap::new());
+                                if let Err(e) = self
+                                    .machine
+                                    .mark_request_as_sent(req.request_id(), &resp)
+                                    .await
+                                {
+                                    log::warn!("Failed to mark failed keys_upload as sent: {}", e);
+                                }
+                            } else {
+                                self.failed.lock().await.insert(req.request_id().to_owned());
+                            }
                         }
                         None => {
                             log::warn!("keys_upload request failed");
