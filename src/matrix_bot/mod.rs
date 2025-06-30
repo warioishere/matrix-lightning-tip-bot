@@ -471,6 +471,9 @@ pub mod matrix_bot {
                         log::info!("processing event {:?} ..", event);
 
                         let sender = event.sender.as_str();
+                        if sender == business_logic_contex.config().matrix_username.as_str() {
+                            return;
+                        }
                         if !sender_allowed(&event.sender, business_logic_contex.config()) {
                             log::info!("Ignoring message from disallowed server: {}", event.sender.server_name());
                             return;
