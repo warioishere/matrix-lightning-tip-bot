@@ -4,7 +4,7 @@ Matrix-Lightning-Tip-Bot (MLTB) is a lightning network BTC tip bot for the matri
 @AE9999 has started this project so most appreciations belong to him. I am here to keep this project running and updating and adding new functions here.
 
 # Warning
-While I have tested this bot, it is in 'beta', don't put in more than you are willing to lose.
+While I have tested this bot alot until now, it is still in 'beta', don't put in more than you are willing to lose.
 
 # How to use
 MLTB can either be used directly or be self run. Running your own instance requires access to a LNbits (https://lnbits.com/) instance that exposes the users API at `/users/api/v1/user`.
