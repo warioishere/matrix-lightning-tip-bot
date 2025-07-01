@@ -25,6 +25,7 @@ pub struct EncryptionHelper {
     pending: tokio::sync::Mutex<Vec<(OwnedRoomId, serde_json::Value)>>,
     failed: tokio::sync::Mutex<std::collections::HashSet<OwnedTransactionId>>,
     user_locks: tokio::sync::Mutex<std::collections::HashMap<OwnedUserId, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    outgoing_requests_lock: tokio::sync::Mutex<()>,
 }
 
 impl EncryptionHelper {
@@ -61,6 +62,7 @@ impl EncryptionHelper {
             pending: Mutex::new(Vec::new()),
             failed: Mutex::new(std::collections::HashSet::new()),
             user_locks: Mutex::new(std::collections::HashMap::new()),
+            outgoing_requests_lock: Mutex::new(()),
         }
     }
 
@@ -383,6 +385,8 @@ impl EncryptionHelper {
     pub async fn process_and_send_outgoing_requests(&self, client: &crate::as_client::MatrixAsClient) {
         use matrix_sdk_crypto::types::requests::AnyOutgoingRequest;
         use ruma::api::client::keys::get_keys;
+
+        let _guard = self.outgoing_requests_lock.lock().await;
 
         let requests = self.machine.outgoing_requests().await.unwrap_or_default();
         let failed = self.failed.lock().await;
