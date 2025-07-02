@@ -1,6 +1,6 @@
 [package]
 name = "matrix-lightning-tip-bot"
-version = "0.8.6"
+version = "0.9.0"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,3 +28,8 @@ mime = "0.3.17"
 lightning-invoice = "0.33.2"
 tl = "0.7.8"
 lnurl-rs = "0.9.0"
+boltz-client = { git = "https://github.com/SatoshiPortal/boltz-rust" }
+bitcoin = { version = "0.32.2", features = ["rand", "base64", "rand-std"] }
+
+[patch.crates-io]
+secp256k1-zkp = { git = "https://github.com/breez/rust-secp256k1-zkp.git", rev = "eac2e479255a6e32b5588bc25ee53c642fdd8395" }

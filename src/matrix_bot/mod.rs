@@ -20,7 +20,10 @@ pub mod matrix_bot {
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet, boltz_onchain2offchain, boltz_offchain2onchain, boltz_refund};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -114,7 +117,8 @@ pub mod matrix_bot {
     async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
-                             extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
+                             extracted_msg_body: &ExtractedMessageBody,
+                             config: &Config) -> Result<Command, SimpleError> {
         let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
         let mut msg_body = last_line(raw.as_str());
         let is_direct = room.is_direct().await.unwrap_or(false);
@@ -189,6 +193,12 @@ pub mod matrix_bot {
             fiat_to_sats(sender, msg_body.as_str())
         } else if msg_body.starts_with("sats-to-fiat") {
             sats_to_fiat(sender, msg_body.as_str())
+        } else if msg_body.starts_with("boltz-onchain2offchain") && config.boltz_url.is_some() {
+            boltz_onchain2offchain(sender, msg_body.as_str())
+        } else if msg_body.starts_with("boltz-offchain2onchain") && config.boltz_url.is_some() {
+            boltz_offchain2onchain(sender, msg_body.as_str())
+        } else if msg_body.starts_with("boltz-refund") && config.boltz_url.is_some() {
+            boltz_refund(sender, msg_body.as_str())
         } else {
             Ok(Command::None)
         }
@@ -404,7 +414,8 @@ pub mod matrix_bot {
     pub struct MatrixBot {
         client: Client,
         business_logic_contex: BusinessLogicContext,
-        config: Config
+        config: Config,
+        pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
     }
 
     impl MatrixBot {
@@ -423,12 +434,17 @@ pub mod matrix_bot {
                 .await
                 .expect("failed to build client");
 
+            let refund_pubkeys = Arc::new(Mutex::new(HashMap::new()));
             let matrix_bot = MatrixBot {
-                business_logic_contex: BusinessLogicContext::new(lnbits_client,
-                                                                 data_layer,
-                                                                 config),
+                business_logic_contex: BusinessLogicContext::new(
+                    lnbits_client,
+                    data_layer,
+                    config,
+                    refund_pubkeys.clone(),
+                ),
                 client,
-                config: config.clone()
+                config: config.clone(),
+                pending_reverse_swaps: Arc::new(Mutex::new(HashMap::new())),
             };
 
             Ok(matrix_bot)
@@ -454,14 +470,17 @@ pub mod matrix_bot {
             let business_logic_contex = self.business_logic_contex.clone();
             let bot_name = self.bot_name().clone();
             let current_time = MilliSecondsSinceUnixEpoch::now();
+            let pending_reverse_swaps = self.pending_reverse_swaps.clone();
 
             self.client.add_event_handler({
                 let business_logic_contex = business_logic_contex.clone();
                 let bot_name = bot_name.clone();
                 let current_time = current_time.clone();
+                let pending_reverse_swaps = pending_reverse_swaps.clone();
                 move |event: OriginalSyncRoomMessageEvent, room: Room|{
                     let business_logic_contex = business_logic_contex.clone();
                     let bot_name = bot_name.clone();
+                    let pending_reverse_swaps = pending_reverse_swaps.clone();
                     async move {
 
                         if room.state() != RoomState::Joined {
@@ -488,6 +507,28 @@ pub mod matrix_bot {
 
                         let plain_message_body = extracted_msg_body.msg_body.clone().unwrap();
 
+                        {
+                            let mut map = pending_reverse_swaps.lock().await;
+                            if let Some((amount, address)) = map.get(sender).cloned() {
+                                let answer = plain_message_body.trim().to_lowercase();
+                                if answer == "yes" {
+                                    map.remove(sender);
+                                    drop(map);
+                                    if let Ok(reply) = business_logic_contex.do_process_boltz_offchain2onchain(sender, address.as_str(), amount).await {
+                                        let _ = send_reply_to_event_in_room(&room, &event, reply.text.unwrap().as_str()).await;
+                                    } else {
+                                        let _ = send_reply_to_event_in_room(&room, &event, "Swap failed").await;
+                                    }
+                                    return;
+                                } else if answer == "no" {
+                                    map.remove(sender);
+                                    drop(map);
+                                    let _ = send_reply_to_event_in_room(&room, &event, "Swap cancelled").await;
+                                    return;
+                                }
+                            }
+                        }
+
                         if plain_message_body.starts_with(bot_name.as_str()) {
                             let result = send_reply_to_event_in_room(&room,
                                                                      &event,
@@ -504,7 +545,8 @@ pub mod matrix_bot {
                         let command = extract_command(&room,
                                                       sender,
                                                       &event,
-                                                      &extracted_msg_body).await;
+                                                      &extracted_msg_body,
+                                                      business_logic_contex.config()).await;
 
 
                         match command {
@@ -524,12 +566,16 @@ pub mod matrix_bot {
                             _ => { },
                         };
                         let command = command.unwrap();
+                        let mut pending_info: Option<(String, u64, String)> = None;
+                        if let Command::BoltzOffchainToOnchain { sender, amount, address } = &command {
+                            pending_info = Some((sender.clone(), *amount, address.clone()));
+                        }
                         if command.is_none() {
                             let room_is_direct = room.is_direct().await.unwrap_or(false);
                             if plain_message_body.trim_start().starts_with('!') || room_is_direct {
                                 if let Err(error) = send_reply_to_event_in_room(&room,
-                                                                                &event,
-                                                                                "Unknown command, please use `help` for list of commands").await {
+                                                                              &event,
+                                                                              "Unknown command, please use `help` for list of commands").await {
                                     log::warn!("Could not send unknown command message due to {:?}..", error);
                                 }
                             }
@@ -537,6 +583,9 @@ pub mod matrix_bot {
                         } // No Command to execute
 
                         let command_reply = business_logic_contex.processing_command(command).await;
+                        if let Some((user, amt, addr)) = pending_info {
+                            pending_reverse_swaps.lock().await.insert(user, (amt, addr));
+                        }
                         match command_reply {
                             Err(error) => {
                                 log::warn!("Error occurred during business processing {:?}..", error);
