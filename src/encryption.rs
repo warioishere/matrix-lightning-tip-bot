@@ -22,10 +22,49 @@ trait OlmMachineExt {
 impl OlmMachineExt for OlmMachine {
     fn wait_for_session<'a>(
         &'a self,
-        _room_id: &'a RoomId,
-        _session_id: &'a str,
+        room_id: &'a RoomId,
+        session_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), OlmError>> + Send + 'a>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            use tokio::time::{sleep, Duration, Instant};
+
+            let start = Instant::now();
+            loop {
+                match self
+                    .store()
+                    .get_inbound_group_session(room_id, session_id)
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        log::debug!(
+                            "Inbound group session arrived: {} for {}",
+                            session_id,
+                            room_id
+                        );
+                        return Ok(());
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::warn!(
+                            "Error while checking for inbound group session: {:?}",
+                            e
+                        );
+                        return Err(e.into());
+                    }
+                }
+
+                if start.elapsed() >= Duration::from_secs(10) {
+                    log::warn!(
+                        "Timeout waiting for inbound group session {} in room {}",
+                        session_id,
+                        room_id
+                    );
+                    return Err(OlmError::MissingSession);
+                }
+
+                sleep(Duration::from_millis(500)).await;
+            }
+        })
     }
 }
 
