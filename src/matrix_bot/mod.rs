@@ -84,13 +84,16 @@ impl MatrixBot {
 
         log::debug!("to_device_events: {:?}", to_device_events);
         if !to_device_events.is_empty() {
-            let new_msgs = self.encryption.receive_to_device(to_device_events).await;
+            let new_msgs = self
+                .encryption
+                .receive_to_device(to_device_events, &self.as_client)
+                .await;
             for (room, sender, body) in new_msgs {
                 self.clone().handle_message(&room, &sender, &body, None).await;
             }
         }
 
-        let retried = self.encryption.retry_pending_events().await;
+        let retried = self.encryption.retry_pending_events(&self.as_client).await;
         for (room, sender, body) in retried {
              self.clone().handle_message(&room, &sender, &body, None).await;
         }
@@ -128,7 +131,7 @@ impl MatrixBot {
                         }
                         if let Some(body) = self
                             .encryption
-                            .decrypt_event(room_id, &ev)
+                            .decrypt_event(room_id, &ev, &self.as_client)
                             .await
                         {
                             self.clone().handle_message(room_id, sender, &body, None).await;
@@ -374,7 +377,7 @@ impl MatrixBot {
         tokio::spawn(async move {
             loop {
                 self.encryption.process_outgoing_requests(&self.as_client).await;
-                let msgs = self.encryption.retry_pending_events().await;
+                let msgs = self.encryption.retry_pending_events(&self.as_client).await;
                 for (room, sender, body) in msgs {
                     self.clone().handle_message(&room, &sender, &body, None).await;
                 }

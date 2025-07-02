@@ -1,12 +1,72 @@
-use matrix_sdk_crypto::OlmMachine;
+use matrix_sdk_crypto::{OlmMachine, OlmError};
 use std::pin::Pin;
 use matrix_sdk_sqlite::SqliteCryptoStore;
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, OwnedTransactionId};
+use ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId, OwnedTransactionId, RoomId};
 use ruma::api::IncomingResponse;
 use tokio::sync::Mutex;
 use crate::config::config::Config;
 
 use matrix_sdk_crypto::store::{Store, Changes};
+
+use std::future::Future;
+
+/// Extension trait providing a `wait_for_session` method for `OlmMachine`.
+trait OlmMachineExt {
+    fn wait_for_session<'a>(
+        &'a self,
+        room_id: &'a RoomId,
+        session_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), OlmError>> + Send + 'a>>;
+}
+
+impl OlmMachineExt for OlmMachine {
+    fn wait_for_session<'a>(
+        &'a self,
+        room_id: &'a RoomId,
+        session_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), OlmError>> + Send + 'a>> {
+        Box::pin(async move {
+            use tokio::time::{sleep, Duration, Instant};
+
+            let start = Instant::now();
+            loop {
+                match self
+                    .store()
+                    .get_inbound_group_session(room_id, session_id)
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        log::debug!(
+                            "Inbound group session arrived: {} for {}",
+                            session_id,
+                            room_id
+                        );
+                        return Ok(());
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::warn!(
+                            "Error while checking for inbound group session: {:?}",
+                            e
+                        );
+                        return Err(e.into());
+                    }
+                }
+
+                if start.elapsed() >= Duration::from_secs(10) {
+                    log::warn!(
+                        "Timeout waiting for inbound group session {} in room {}",
+                        session_id,
+                        room_id
+                    );
+                    return Err(OlmError::MissingSession);
+                }
+
+                sleep(Duration::from_millis(500)).await;
+            }
+        })
+    }
+}
 
 
 trait StoreSave {
@@ -226,7 +286,11 @@ impl EncryptionHelper {
         )
     }
 
-    pub async fn receive_to_device(&self, events: Vec<serde_json::Value>) -> Vec<(String, String, String)> {
+    pub async fn receive_to_device(
+        &self,
+        events: Vec<serde_json::Value>,
+        client: &crate::as_client::MatrixAsClient,
+    ) -> Vec<(String, String, String)> {
         use matrix_sdk_crypto::EncryptionSyncChanges;
         use ruma::{api::client::sync::sync_events::DeviceLists, serde::Raw, OneTimeKeyAlgorithm, UInt, events::AnyToDeviceEvent};
         use std::collections::BTreeMap;
@@ -267,7 +331,7 @@ impl EncryptionHelper {
             }
         }
 
-        self.retry_pending_events().await
+        self.retry_pending_events(client).await
     }
 
     pub async fn receive_device_lists(&self, lists: serde_json::Value) {
@@ -328,9 +392,69 @@ impl EncryptionHelper {
 
     }
 
-    pub async fn decrypt_event(&self, room_id: &str, event: &serde_json::Value) -> Option<String> {
+    /// Send a dummy `m.dummy` event to the given device to reinitialize the Olm session.
+    pub async fn send_dummy_to_device(
+        &self,
+        user_id: &ruma::UserId,
+        device_id: &ruma::DeviceId,
+        client: &crate::as_client::MatrixAsClient,
+    ) {
+        use matrix_sdk_crypto::types::{events::dummy::DummyEventContent, requests::ToDeviceRequest};
+        use ruma::{events::AnyToDeviceEventContent, serde::Raw};
+
+        let device = match self.machine.get_device(user_id, device_id, None).await {
+            Ok(Some(d)) => d,
+            Ok(None) => {
+                log::warn!("Device {} not found for {}", device_id, user_id);
+                return;
+            }
+            Err(e) => {
+                log::warn!("Failed to get device {} for {}: {:?}", device_id, user_id, e);
+                return;
+            }
+        };
+
+        let content = DummyEventContent::new();
+        let value = match serde_json::to_value(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("Failed to serialize dummy content: {:?}", e);
+                return;
+            }
+        };
+
+        match device.encrypt_event_raw("m.dummy", &value).await {
+            Ok(encrypted) => {
+                let raw_any = Raw::<AnyToDeviceEventContent>::from_json(encrypted.into_json());
+                let request = ToDeviceRequest::new(
+                    user_id,
+                    device_id.to_owned(),
+                    "m.room.encrypted",
+                    raw_any,
+                );
+
+                if client.send_to_device(request).await.is_some() {
+                    log::debug!("Dummy event sent to {}:{}", user_id, device_id);
+                } else {
+                    log::warn!("Failed to send dummy event");
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to prepare dummy event: {:?}", e);
+            }
+        }
+    }
+
+    pub async fn decrypt_event(
+        &self,
+        room_id: &str,
+        event: &serde_json::Value,
+        client: &crate::as_client::MatrixAsClient,
+    ) -> Option<String> {
         let room_id: OwnedRoomId = room_id.parse().ok()?;
-        self.decrypt_event_internal(&room_id, event, true).await
+        self
+            .decrypt_event_internal(&room_id, event, true, client)
+            .await
     }
 
     async fn decrypt_event_internal(
@@ -338,31 +462,81 @@ impl EncryptionHelper {
         room_id: &OwnedRoomId,
         event: &serde_json::Value,
         queue_on_missing: bool,
+        client: &crate::as_client::MatrixAsClient,
     ) -> Option<String> {
         use matrix_sdk_crypto::{DecryptionSettings, TrustRequirement};
         use matrix_sdk_crypto::types::events::room::encrypted::EncryptedEvent;
         use ruma::{serde::Raw, events::{AnyMessageLikeEvent, MessageLikeEvent, room::message::MessageType}};
 
         let raw: Raw<EncryptedEvent> = serde_json::value::to_raw_value(event).ok().map(Raw::from_json)?;
+        let session_info = raw
+            .deserialize()
+            .ok()
+            .and_then(|e: EncryptedEvent| match e.content.scheme {
+                matrix_sdk_crypto::types::events::room::encrypted::RoomEventEncryptionScheme::MegolmV1AesSha2(c) => Some((e.sender, c.device_id, c.session_id)),
+                _ => None,
+            });
         let settings = DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-        let decrypted = match self
-            .machine
-            .decrypt_room_event(&raw, room_id, &settings)
-            .await
-        {
-            Ok(ev) => ev,
-            Err(matrix_sdk_crypto::MegolmError::MissingRoomKey(_)) => {
-                if queue_on_missing {
+        let mut first_try = true;
+        let decrypted = loop {
+            match self
+                .machine
+                .decrypt_room_event(&raw, room_id, &settings)
+                .await
+            {
+                Ok(ev) => break ev,
+                Err(matrix_sdk_crypto::MegolmError::MissingRoomKey(_)) if queue_on_missing && first_try => {
+                    first_try = false;
                     log::debug!("Missing room key, queueing event for retry");
                     {
                         let mut p = self.pending.lock().await;
                         p.push((room_id.clone(), event.clone()));
                     }
                     let _ = self.machine.request_room_key(&raw, room_id).await;
+
+                    use tokio::time::{timeout, Duration};
+                    let session_id = session_info.as_ref().map(|s| s.2.as_str()).unwrap_or("");
+                    let wait_result = timeout(
+                        Duration::from_secs(10),
+                        self.machine.wait_for_session(room_id, session_id),
+                    )
+                    .await;
+
+                    match wait_result {
+                        Ok(Ok(())) => {
+                            log::debug!("Session arrived for {}", session_id);
+                        }
+                        Ok(Err(e)) => {
+                            log::warn!("Error waiting for session: {:?}", e);
+                        }
+                        Err(_) => {
+                            log::warn!("Timeout waiting for session: {}", session_id);
+                        }
+                    }
+
+                    if let Some((sender_user, sender_device, session_id)) = session_info.clone() {
+                        self
+                            .send_dummy_to_device(&sender_user, &sender_device, client)
+                            .await;
+
+                        let wait_result2 = timeout(
+                            Duration::from_secs(5),
+                            self.machine.wait_for_session(room_id, &session_id),
+                        )
+                        .await;
+
+                        if let Ok(Ok(())) = wait_result2 {
+                            log::debug!(
+                                "Session arrived after dummy event for {}",
+                                session_id
+                            );
+                        } else {
+                            log::warn!("Still no session after dummy event");
+                        }
+                    }
                 }
-                return None;
+                Err(_) => return None,
             }
-            Err(_) => return None,
         };
 
         if let Err(e) = self.machine.store().save().await {
@@ -506,7 +680,10 @@ impl EncryptionHelper {
         self.process_and_send_outgoing_requests(client).await;
     }
 
-    pub async fn retry_pending_events(&self) -> Vec<(String, String, String)> {
+    pub async fn retry_pending_events(
+        &self,
+        client: &crate::as_client::MatrixAsClient,
+    ) -> Vec<(String, String, String)> {
         let mut pending = self.pending.lock().await;
         if pending.is_empty() {
             return Vec::new();
@@ -518,7 +695,7 @@ impl EncryptionHelper {
             let (room_id, event) = pending[i].clone();
             if let Some(sender) = event.get("sender").and_then(|s| s.as_str()) {
                 if let Some(body) = self
-                    .decrypt_event_internal(&room_id, &event, false)
+                    .decrypt_event_internal(&room_id, &event, false, client)
                     .await
                 {
                     results.push((room_id.to_string(), sender.to_string(), body));
