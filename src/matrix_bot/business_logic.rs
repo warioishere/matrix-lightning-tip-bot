@@ -11,21 +11,21 @@ use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
 
-const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: !tip <amount> [<memo>]\n\
-**!generate-ln-address** - Get your own LN Address: !generate-ln-address <your address name>\n\
-**!show-ln-addresses** - Show your generated LN Addresses: !show-ln-addresses\n\
-**!balance** - Check your balance: !balance\n\
-**!send** - Send funds to a user: !send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]\n\
-**!invoice** - Receive over Lightning: !invoice <amount> [<memo>]\n\
-**!pay** - Pay an invoice over Lightning: !pay <invoice>\n\
-**!transactions** - List your transactions: !transactions\n\
-**!link-to-zeus-wallet** - Connect your wallet in Zeus: !link-to-zeus-wallet\n\
-**!help** - Read this help: !help\n\
-**!donate** - Donate to the matrix-lightning-tip-bot project: !donate <amount>\n\
-**!party** - Start a Party: !party\n\
-**!fiat-to-sats** - Convert fiat to satoshis: !fiat-to-sats <amount> <currency (USD, EUR, CHF)>\n\
-**!sats-to-fiat** - Convert satoshis to fiat: !sats-to-fiat <amount> <currency (USD, EUR, CHF)>\n\
-**!version** - Print the version of this bot: !version";
+const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`\n\
+**!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`\n\
+**!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`\n\
+**!balance** - Check your balance: `!balance`\n\
+**!send** - Send funds to a user: `!send <amount> <@user> or <@user:domain.com> or <lightningadress@yourdomain.com> [<memo>]`\n\
+**!invoice** - Receive over Lightning: `!invoice <amount> [<memo>]`\n\
+**!pay** - Pay an invoice over Lightning: `!pay <invoice>`\n\
+**!transactions** - List your transactions: `!transactions`\n\
+**!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`\n\
+**!help** - Read this help: `!help`\n\
+**!donate** - Donate to the matrix-lightning-tip-bot project: `!donate <amount>`\n\
+**!party** - Start a Party: `!party`\n\
+**!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`\n\
+**!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n\
+**!version** - Print the version of this bot: `!version`";
 
 fn help_commands(with_prefix: bool) -> String {
     if with_prefix {
