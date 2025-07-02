@@ -28,14 +28,40 @@ pub fn markdown_to_html(input: &str) -> String {
                         result.push_str("</strong>");
                         break;
                     } else {
-                        result.push(c);
+                        match c {
+                            '<' => result.push_str("&lt;"),
+                            '>' => result.push_str("&gt;"),
+                            _ => result.push(c),
+                        }
                     }
                 }
             } else {
-                result.push(ch);
+                match ch {
+                    '<' => result.push_str("&lt;"),
+                    '>' => result.push_str("&gt;"),
+                    _ => result.push(ch),
+                }
+            }
+        } else if ch == '`' {
+            result.push_str("<code>");
+            while let Some(c) = chars.next() {
+                if c == '`' {
+                    result.push_str("</code>");
+                    break;
+                } else {
+                    match c {
+                        '<' => result.push_str("&lt;"),
+                        '>' => result.push_str("&gt;"),
+                        _ => result.push(c),
+                    }
+                }
             }
         } else {
-            result.push(ch);
+            match ch {
+                '<' => result.push_str("&lt;"),
+                '>' => result.push_str("&gt;"),
+                _ => result.push(ch),
+            }
         }
     }
     result
