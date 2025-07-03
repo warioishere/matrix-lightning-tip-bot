@@ -33,6 +33,7 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!version** - Print the version of this bot: `!version`
 
 Boltz swap commands will only be available if `--boltz-url` is set in the configuration.
+The bot monitors active swaps and will post updates when their status changes.
 
 In direct messages with the bot, the leading `!` can be omitted for all commands.
 

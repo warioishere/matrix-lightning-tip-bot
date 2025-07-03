@@ -31,6 +31,7 @@ pub struct CommandReply {
     pub payment_hash: Option<String>,
     pub in_key: Option<String>,
     pub receiver_message: Option<String>,
+    pub swap_id: Option<String>,
 }
 
 impl Command {
@@ -203,6 +204,7 @@ impl CommandReply {
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            swap_id: None,
         }
     }
 
@@ -214,6 +216,7 @@ impl CommandReply {
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            swap_id: None,
         }
     }
 

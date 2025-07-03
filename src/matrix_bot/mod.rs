@@ -15,7 +15,7 @@ pub mod matrix_bot {
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
     use mime;
-    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName, UserId};
+    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, OwnedRoomId, ServerName, UserId};
     
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
@@ -26,6 +26,12 @@ pub mod matrix_bot {
     use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet, boltz_onchain2offchain, boltz_offchain2onchain, boltz_refund};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
+
+    #[derive(Clone)]
+    struct SwapInfo {
+        room_id: OwnedRoomId,
+        last_status: String,
+    }
 
 
     #[derive(Debug)]
@@ -416,6 +422,7 @@ pub mod matrix_bot {
         business_logic_contex: BusinessLogicContext,
         config: Config,
         pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
+        active_swaps: Arc<Mutex<HashMap<String, SwapInfo>>>,
     }
 
     impl MatrixBot {
@@ -445,6 +452,7 @@ pub mod matrix_bot {
                 client,
                 config: config.clone(),
                 pending_reverse_swaps: Arc::new(Mutex::new(HashMap::new())),
+                active_swaps: Arc::new(Mutex::new(HashMap::new())),
             };
 
             Ok(matrix_bot)
@@ -471,16 +479,19 @@ pub mod matrix_bot {
             let bot_name = self.bot_name().clone();
             let current_time = MilliSecondsSinceUnixEpoch::now();
             let pending_reverse_swaps = self.pending_reverse_swaps.clone();
+            let active_swaps = self.active_swaps.clone();
 
             self.client.add_event_handler({
                 let business_logic_contex = business_logic_contex.clone();
                 let bot_name = bot_name.clone();
                 let current_time = current_time.clone();
                 let pending_reverse_swaps = pending_reverse_swaps.clone();
+                let active_swaps = active_swaps.clone();
                 move |event: OriginalSyncRoomMessageEvent, room: Room|{
                     let business_logic_contex = business_logic_contex.clone();
                     let bot_name = bot_name.clone();
                     let pending_reverse_swaps = pending_reverse_swaps.clone();
+                    let active_swaps = active_swaps.clone();
                     async move {
 
                         if room.state() != RoomState::Joined {
@@ -658,6 +669,16 @@ pub mod matrix_bot {
                             }
                         }
 
+                        if let Some(swap_id) = command_reply.swap_id.clone() {
+                            active_swaps.lock().await.insert(
+                                swap_id,
+                                SwapInfo {
+                                    room_id: room.room_id().to_owned(),
+                                    last_status: String::new(),
+                                },
+                            );
+                        }
+
                         if command_reply.payment_hash.is_some() && command_reply.in_key.is_some() {
                             let payment_hash = command_reply.payment_hash.clone().unwrap();
                             let in_key = command_reply.in_key.clone().unwrap();
@@ -689,6 +710,8 @@ pub mod matrix_bot {
                     }
                 }
             });
+
+            self.start_swap_monitor();
         }
 
         fn bot_name(&self) -> String {
@@ -699,6 +722,48 @@ pub mod matrix_bot {
             } else {
                 parts[0][1..].to_owned()
             }
+        }
+
+        fn start_swap_monitor(&self) {
+            let active_swaps = self.active_swaps.clone();
+            let client = self.client.clone();
+            let boltz = self.business_logic_contex.boltz_client.clone();
+            tokio::spawn(async move {
+                use tokio::time::{sleep, Duration};
+                loop {
+                    sleep(Duration::from_secs(60)).await;
+                    let boltz_client = match &boltz {
+                        Some(b) => b.clone(),
+                        None => continue,
+                    };
+                    let swaps: Vec<(String, SwapInfo)> = {
+                        let map = active_swaps.lock().await;
+                        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                    };
+                    for (id, info) in swaps {
+                        match boltz_client.get_swap(&id).await {
+                            Ok(resp) => {
+                                if resp.status != info.last_status {
+                                    if let Some(room) = client.get_room(&info.room_id) {
+                                        let msg = format!("Swap {} status: {}", id, resp.status);
+                                        let content = RoomMessageEventContent::text_plain(msg);
+                                        let _ = room.send(content).await;
+                                    }
+                                    let mut map = active_swaps.lock().await;
+                                    if matches!(resp.status.as_str(), "invoice.settled" | "transaction.confirmed" | "transaction.claimed") {
+                                        map.remove(&id);
+                                    } else {
+                                        map.insert(id.clone(), SwapInfo { last_status: resp.status.clone(), ..info.clone() });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Error polling swap {}: {:?}", id, e);
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         pub async fn sync(&self) -> matrix_sdk::Result<()>  {

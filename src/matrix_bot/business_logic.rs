@@ -33,7 +33,7 @@ const HELP_COMMANDS_BASE: &str = "**!tip** - Reply to a message to tip it: `!tip
 
 const HELP_COMMANDS_BOLTZ: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot replies with the deposit address, amount to send, swap ID for refunds, a QR code and the estimated Lightning payout)\n\
 **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID)\n\
-**!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`\n";
+**!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`\nBot notifies you when swap status changes.\n";
 
 fn help_commands(with_prefix: bool, boltz_enabled: bool) -> String {
     let mut base = if with_prefix { HELP_COMMANDS_BASE.to_string() } else { HELP_COMMANDS_BASE.replace('!', "") };
@@ -539,7 +539,9 @@ impl BusinessLogicContext {
             256,
         )
         .map_err(|e| SimpleError::new(format!("{:?}", e)))?;
-        Ok(CommandReply::new(reply.as_str(), image, "address.png"))
+        let mut cr = CommandReply::new(reply.as_str(), image, "address.png");
+        cr.swap_id = Some(resp.id.clone());
+        Ok(cr)
     }
 
     async fn prepare_boltz_offchain2onchain(
@@ -593,9 +595,11 @@ impl BusinessLogicContext {
         if let Some(inv) = resp.invoice.clone() {
             self.pay_bolt11_invoice_as_matrix_is(sender, inv.as_str()).await?;
         }
-        Ok(CommandReply::text_only(
+        let mut cr = CommandReply::text_only(
             format!("Swap started with id {}. Expect ~{} sats on chain.", resp.id, net_amount).as_str(),
-        ))
+        );
+        cr.swap_id = Some(resp.id.clone());
+        Ok(cr)
     }
 
     pub async fn do_process_boltz_refund(&self, swap_id: &str) -> Result<CommandReply, SimpleError> {
