@@ -114,7 +114,8 @@ CONFIG_FILE=@/data/config/config.conf
 See https://docs.docker.com/compose/environment-variables/ for more information.
 
 # Contact
-The developer has public matrix room at `#matrix-lightning-tip-bot-discussion:s-software-solutions.nl`
+I have has public matrix room at `#bitcoin:matrix.yourdevice.ch` where you can ask questions.
+
 # BTC Donations
 Non lightning BTC donations are welcome at `bc1q72dzh04fwxx780w05twtmn5fxzegpawdn5zg3g`
 
