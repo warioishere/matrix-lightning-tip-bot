@@ -26,7 +26,13 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!party** - Start a Party: `!party`
 * **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`
 * **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
+* **!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot tells you the deposit address, exact amount to send, shows a QR code, returns the swap ID for refunds and the estimated Lightning amount after fees)
+* **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID)
+* **!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`
+  *(Only shown if `--boltz-url` is configured)*
 * **!version** - Print the version of this bot: `!version`
+
+Boltz swap commands will only be available if `--boltz-url` is set in the configuration.
 
 In direct messages with the bot, the leading `!` can be omitted for all commands.
 
@@ -78,6 +84,7 @@ used for creating lightning addresses without the bearer token:
 --lnbits-url=http://mylnbitsurl.com                    # The url of your LNbits instance
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
+--boltz-url=https://api.boltz.exchange/v2             # Boltz API endpoint (optional)
 --database-url=/data/db/tipbot.db                      # The absolute path to your generated db.
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```

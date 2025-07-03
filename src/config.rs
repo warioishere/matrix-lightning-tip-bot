@@ -10,6 +10,7 @@ pub mod config {
         pub lnbits_url: String,
         pub lnbits_bearer_token: String,
         pub lnbits_api_key: String,
+        pub boltz_url: Option<String>,
         pub database_url: String,
         pub debug_level: String,
         pub allowed_matrix_servers: Option<Vec<String>>
@@ -22,6 +23,7 @@ pub mod config {
                    lnbits_url: &str,
                    lnbits_bearer_token: &str,
                    lnbits_api_key: &str,
+                   boltz_url: Option<&str>,
                    database_url: &str,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
@@ -32,6 +34,7 @@ pub mod config {
                 lnbits_url: lnbits_url.to_string(),
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 lnbits_api_key: lnbits_api_key.to_string(),
+                boltz_url: boltz_url.map(|s| s.to_string()),
                 database_url: database_url.to_string(),
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
@@ -48,7 +51,7 @@ pub mod config {
         ).unwrap();
 
         let matches = Command::new("LN-Matrix-Bot")
-            .version("0.8.6")
+            .version("0.9.0")
             .author("warioishere")
             .about("LN-Matrix-Bot")
             .arg(Arg::new("matrix-server")
@@ -75,6 +78,10 @@ pub mod config {
                 .long("lnbits-api-key")
                 .required(true)
                 .help("lnbits api key"))
+            .arg(Arg::new("boltz-url")
+                .long("boltz-url")
+                .required(false)
+                .help("boltz api url (enable swap commands)"))
             .arg(Arg::new("database-url")
                 .long("database-url")
                 .required(true)
@@ -104,6 +111,8 @@ pub mod config {
         let lnbits_bearer_token = matches.get_one::<String>("lnbits-bearer-token").unwrap();
         let lnbits_api_key = matches.get_one::<String>("lnbits-api-key").unwrap();
 
+        let boltz_url = matches.get_one::<String>("boltz-url");
+
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
         let debug_level = matches.get_one::<String>("debug-level").unwrap();
@@ -118,6 +127,7 @@ pub mod config {
                     lnbits_url,
                     lnbits_bearer_token,
                     lnbits_api_key,
+                    boltz_url.map(|s| s.as_str()),
                     database_url,
                     debug_level,
                     allowed_matrix_servers)
