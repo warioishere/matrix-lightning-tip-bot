@@ -12,6 +12,8 @@ MLTB can either be used directly or be self run. Running your own instance requi
 ## Directly
 I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.yourdevice.ch. Invite it to a room to get started immediately. After joining the bot should display the possible commands which are:
 
+* **!help** - Read this help: `!help`
+* **!help-boltz-swaps** - Learn how swaps and refunds work: `!help-boltz-swaps`
 * **!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`
 * **!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`
 * **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`
@@ -21,14 +23,21 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
 * **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`
-* **!help** - Read this help: `!help`
 * **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
 * **!party** - Start a Party: `!party`
 * **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`
 * **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
+* **!boltz-onchain-to-offchain** - Swap onchain BTC to Lightning: `!boltz-onchain-to-offchain <amount> <refund-address>`
+* **!boltz-offchain-to-onchain** - Swap Lightning to onchain BTC: `!boltz-offchain-to-onchain <amount> <onchain-address>`
+* **!refund** - Refund a failed swap: `!refund <swap_id>`
 * **!version** - Print the version of this bot: `!version`
 
 In direct messages with the bot, the leading `!` can be omitted for all commands.
+
+The bot monitors each swap or refund and sends a notification once the final status is known.
+
+### Boltz swaps
+`!help-boltz-swaps` explains the workflow for swapping funds. Swaps require at least 25000 sats and a fee charged by Boltz is automatically added to the amount you send. Use the onchain-to-offchain command to fund a Lightning invoice, the offchain-to-onchain command to receive coins on-chain and `!refund` if something goes wrong.
 
 ## Running your own instance
 We recommend running your own MLTB instance using Docker https://www.docker.com/.
@@ -116,7 +125,7 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 
 # Scheduled TODOs
 - make this work as an registered AS (Application Service) on your matrix homeserver instead of using a matrix-user-account
-- add onchain to offchain and offchain to onchain boltz atomic swap support so users can swap der sats
+- add onchain to offchain and offchain to onchain boltz atomic swap support so users can swap der sats (✅)
 - generate your own ln-address with the command !generate-ln-address (✅)
 - send info when created invoice has been paid (✅)
 - limit usage to specific matrix instances (✅)

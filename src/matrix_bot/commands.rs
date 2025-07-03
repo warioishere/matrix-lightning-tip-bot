@@ -8,6 +8,7 @@ pub enum Command  {
     Invoice { sender: String, amount: u64, memo: Option<String> },
     Pay     { sender: String, invoice: String },
     Help    { with_prefix: bool, include_note: bool },
+    HelpBoltzSwaps { with_prefix: bool, include_note: bool },
     Donate  { sender: String, amount: u64 },
     Party   { },
     Version { },
@@ -17,6 +18,9 @@ pub enum Command  {
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
     LinkToZeusWallet { sender: String },
+    BoltzOnchainToOffchain { sender: String, amount: u64, refund_address: String },
+    BoltzOffchainToOnchain { sender: String, amount: u64, onchain_address: String },
+    Refund { sender: String, swap_id: String },
     None,
 }
 
@@ -24,9 +28,12 @@ pub enum Command  {
 pub struct CommandReply {
     pub text: Option<String>,
     pub image: Option<Vec<u8>>,
+    pub image_name: Option<String>,
     pub payment_hash: Option<String>,
     pub in_key: Option<String>,
     pub receiver_message: Option<String>,
+    pub swap_id: Option<String>,
+    pub admin_key: Option<String>,
 }
 
 impl Command {
@@ -101,6 +108,10 @@ pub fn help(with_prefix: bool, include_note: bool) -> Result<Command, SimpleErro
     Ok(Command::Help { with_prefix, include_note })
 }
 
+pub fn help_boltz_swaps(with_prefix: bool, include_note: bool) -> Result<Command, SimpleError> {
+    Ok(Command::HelpBoltzSwaps { with_prefix, include_note })
+}
+
 
 pub fn donate(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
@@ -161,15 +172,47 @@ pub fn link_to_zeus_wallet(sender: &str) -> Result<Command, SimpleError> {
     Ok(Command::LinkToZeusWallet { sender: sender.to_string() })
 }
 
+pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
+    let split = text.split_whitespace().collect::<Vec<&str>>();
+    if split.len() < 3 {
+        bail!("Expected at least 3 arguments: !boltz-onchain-to-offchain <amount> <refund-address>");
+    }
+    let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
+    let refund_address = split[2].to_string();
+    Ok(Command::BoltzOnchainToOffchain { sender: sender.to_string(), amount, refund_address })
+}
+
+pub fn boltz_offchain_to_onchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
+    let split = text.split_whitespace().collect::<Vec<&str>>();
+    if split.len() < 3 {
+        bail!("Expected at least 3 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>");
+    }
+    let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
+    let onchain_address = split[2].to_string();
+    Ok(Command::BoltzOffchainToOnchain { sender: sender.to_string(), amount, onchain_address })
+}
+
+pub fn refund(sender: &str, text: &str) -> Result<Command, SimpleError> {
+    let split = text.split_whitespace().collect::<Vec<&str>>();
+    if split.len() < 2 {
+        bail!("Expected at least 2 arguments: !refund <swap_id>");
+    }
+    let swap_id = split[1].to_string();
+    Ok(Command::Refund { sender: sender.to_string(), swap_id })
+}
+
 impl CommandReply {
 
     pub fn text_only(text: &str) -> CommandReply {
         CommandReply {
             text: Some(text.to_string()),
             image: None,
+            image_name: None,
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            swap_id: None,
+            admin_key: None,
         }
     }
 
@@ -177,9 +220,12 @@ impl CommandReply {
         CommandReply {
             text: Some(text.to_string()),
             image: Some(image),
+            image_name: None,
             payment_hash: None,
             in_key: None,
             receiver_message: None,
+            swap_id: None,
+            admin_key: None,
         }
     }
 

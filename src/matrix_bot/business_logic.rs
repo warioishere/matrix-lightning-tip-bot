@@ -10,8 +10,13 @@ use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoicePar
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`\n\
+const HELP_COMMANDS: &str = "**!help** - Read this help: `!help`\n\
+**!help-boltz-swaps** - Learn how swaps and refunds work: `!help-boltz-swaps`\n\
+**!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`\n\
 **!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`\n\
 **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`\n\
 **!balance** - Check your balance: `!balance`\n\
@@ -20,12 +25,19 @@ const HELP_COMMANDS: &str = "**!tip** - Reply to a message to tip it: `!tip <amo
 **!pay** - Pay an invoice over Lightning: `!pay <invoice>`\n\
 **!transactions** - List your transactions: `!transactions`\n\
 **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`\n\
-**!help** - Read this help: `!help`\n\
 **!donate** - Donate to the matrix-lightning-tip-bot project: `!donate <amount>`\n\
 **!party** - Start a Party: `!party`\n\
 **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`\n\
 **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n\
+**!boltz-onchain-to-offchain** - Swap onchain BTC to Lightning: `!boltz-onchain-to-offchain <amount> <refund-address>`\n\
+**!boltz-offchain-to-onchain** - Swap Lightning to onchain BTC: `!boltz-offchain-to-onchain <amount> <onchain-address>`\n\
+**!refund** - Refund a failed swap: `!refund <swap_id>`\n\
 **!version** - Print the version of this bot: `!version`";
+
+const HELP_BOLTZ_SWAPS: &str = "Boltz swaps convert funds between onchain and Lightning.\n\
+**!boltz-onchain-to-offchain <amount> <refund-address>** - Creates an address to send onchain BTC. Minimum 25000 sats. Boltz fees are added automatically. The bot notifies you when your Lightning funds arrive.\n\
+**!boltz-offchain-to-onchain <amount> <onchain-address>** - After you confirm, the bot sends an invoice including the swap fee. Pay it to receive onchain BTC.\n\
+**!refund <swap_id>** - Requests a refund for a failed swap. The bot tracks the refund and informs you once it's done.";
 
 fn help_commands(with_prefix: bool) -> String {
     if with_prefix {
@@ -35,13 +47,22 @@ fn help_commands(with_prefix: bool) -> String {
     }
 }
 
+fn help_boltz_swaps_text(with_prefix: bool) -> String {
+    if with_prefix {
+        HELP_BOLTZ_SWAPS.to_string()
+    } else {
+        HELP_BOLTZ_SWAPS.replace('!', "")
+    }
+}
+
 pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
 
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     pub lnbits_client: LNBitsClient,
     data_layer: DataLayer,
-    config: Config
+    config: Config,
+    pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
 }
 
 impl BusinessLogicContext {
@@ -52,7 +73,8 @@ impl BusinessLogicContext {
         BusinessLogicContext {
             lnbits_client,
             data_layer,
-            config: config.clone()
+            config: config.clone(),
+            pending_reverse_swaps: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -60,20 +82,37 @@ impl BusinessLogicContext {
         &self.config
     }
 
+    pub async fn has_pending_reverse_swap(&self, sender: &str) -> bool {
+        let map = self.pending_reverse_swaps.lock().await;
+        map.contains_key(sender)
+    }
+
     pub fn get_help_content(&self, with_prefix: bool, include_note: bool) -> String {
         if include_note {
             format!(
-                "{}\n\nMatrix-Lightning-Tip-Bot {}\n{}",
+                "{}\n\nMatrix-Lightning-Tip-Bot {}\n\n{}",
                 VERIFICATION_NOTE,
                 env!("CARGO_PKG_VERSION"),
                 help_commands(with_prefix)
             )
         } else {
             format!(
-                "Matrix-Lightning-Tip-Bot {}\n{}",
+                "Matrix-Lightning-Tip-Bot {}\n\n{}",
                 env!("CARGO_PKG_VERSION"),
                 help_commands(with_prefix)
             )
+        }
+    }
+
+    pub fn get_help_boltz_swaps_content(&self, with_prefix: bool, include_note: bool) -> String {
+        if include_note {
+            format!(
+                "{}\n\n{}",
+                VERIFICATION_NOTE,
+                help_boltz_swaps_text(with_prefix)
+            )
+        } else {
+            help_boltz_swaps_text(with_prefix)
         }
     }
 
@@ -120,6 +159,10 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_help(with_prefix, include_note).await,
                           "Could not process help")
             },
+            Command::HelpBoltzSwaps { with_prefix, include_note } => {
+                try_with!(self.do_process_help_boltz_swaps(with_prefix, include_note).await,
+                          "Could not process help-boltz-swaps")
+            },
             Command::Donate { sender, amount } => {
                 try_with!(self.do_process_donate(sender.as_str(), amount).await,
                          "Could not process donate")
@@ -145,6 +188,18 @@ impl BusinessLogicContext {
             Command::SatsToFiat { sender, amount, currency } => {
                 try_with!(self.do_process_fiat_conversion(sender.as_str(), amount as f64, currency.as_str(), false).await,
                       "Could not process SatsToFiat")
+            },
+            Command::BoltzOnchainToOffchain { sender, amount, refund_address } => {
+                try_with!(self.do_process_boltz_onchain_to_offchain(sender.as_str(), amount, refund_address.as_str()).await,
+                          "Could not process boltz onchain to offchain")
+            },
+            Command::BoltzOffchainToOnchain { sender, amount, onchain_address } => {
+                try_with!(self.do_process_boltz_offchain_to_onchain(sender.as_str(), amount, onchain_address.as_str()).await,
+                          "Could not process boltz offchain to onchain")
+            },
+            Command::Refund { sender, swap_id } => {
+                try_with!(self.do_process_refund(sender.as_str(), swap_id.as_str()).await,
+                          "Could not process refund")
             },
             _ => {
                 log::error!("Encountered unsuported command {:?} ..", command);
@@ -304,8 +359,8 @@ impl BusinessLogicContext {
                                        "Could not generate QR code");
 
         // Insert QR code here
-        let mut command_reply = CommandReply::new(bolt11_invoice.as_str(),
-                                                                image);
+        let mut command_reply = CommandReply::new(bolt11_invoice.as_str(), image);
+        command_reply.image_name = Some("invoice.png".to_string());
         command_reply.payment_hash = payment_hash;
         command_reply.in_key = Some(in_key);
 
@@ -371,6 +426,11 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(self.get_help_content(with_prefix, include_note).as_str()))
     }
 
+    async fn do_process_help_boltz_swaps(&self, with_prefix: bool, include_note: bool) -> Result<CommandReply, SimpleError> {
+        log::info!("processing help-boltz-swaps command ..");
+        Ok(CommandReply::text_only(self.get_help_boltz_swaps_content(with_prefix, include_note).as_str()))
+    }
+
     async fn do_process_party(&self) -> Result<CommandReply, SimpleError> {
         log::info!("processing party command ..");
         Ok(CommandReply::text_only("🎉🎊🥳 let's PARTY!! 🥳🎊🎉"))
@@ -400,7 +460,9 @@ impl BusinessLogicContext {
             256
         ), "Could not generate QR code");
 
-        Ok(CommandReply::new(lndhub_url.as_str(), image))
+        let mut reply = CommandReply::new(lndhub_url.as_str(), image);
+        reply.image_name = Some("lnurl.png".to_string());
+        Ok(reply)
     }
 
     async fn do_process_generate_ln_address(&self, sender: &str, username: &str) -> Result<CommandReply, SimpleError> {
@@ -465,6 +527,79 @@ impl BusinessLogicContext {
             Err(error) => Err(error)
         }
 
+    }
+
+    async fn do_process_boltz_onchain_to_offchain(&self, sender: &str, amount: u64, refund_address: &str) -> Result<CommandReply, SimpleError> {
+        if amount < 25_000 {
+            return Ok(CommandReply::text_only("Minimum swap amount is 25000 sats"));
+        }
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await, "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await, "Could not load wallet");
+        let swap = try_with!(self.lnbits_client.boltz_create_swap(&wallet, amount, refund_address).await, "Could not create swap");
+        let swap_id = swap.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let address = swap.get("address").and_then(|v| v.as_str()).unwrap_or("");
+        let bip21 = swap.get("bip21").and_then(|v| v.as_str()).unwrap_or("");
+        let image = qrcode_generator::to_png_to_vec(bip21, QrCodeEcc::Medium, 256).map_err(SimpleError::from)?;
+        let mut reply = CommandReply::new(
+            &format!("Send {} sats to {} (BIP21: {}). Swap ID: {}", amount, address, bip21, swap_id),
+            image,
+        );
+        reply.image_name = Some("send-to.png".to_string());
+        reply.swap_id = Some(swap_id);
+        reply.admin_key = Some(wallet.admin_key.clone());
+        Ok(reply)
+    }
+
+    async fn do_process_boltz_offchain_to_onchain_impl(&self, sender: &str, amount: u64, onchain_address: &str) -> Result<CommandReply, SimpleError> {
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await, "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await, "Could not load wallet");
+        let swap = try_with!(self.lnbits_client.boltz_create_reverse_swap(&wallet, amount, onchain_address, true).await, "Could not create reverse swap");
+        let swap_id = swap.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let invoice = swap.get("invoice").and_then(|v| v.as_str()).unwrap_or("");
+        let mut reply = CommandReply::new(invoice, qrcode_generator::to_png_to_vec(invoice, QrCodeEcc::Medium, 256).map_err(SimpleError::from)?);
+        reply.image_name = Some("invoice.png".to_string());
+        reply.swap_id = Some(swap_id);
+        reply.admin_key = Some(wallet.admin_key.clone());
+        Ok(reply)
+    }
+
+    async fn do_process_boltz_offchain_to_onchain(&self, sender: &str, amount: u64, onchain_address: &str) -> Result<CommandReply, SimpleError> {
+        if amount < 25_000 {
+            return Ok(CommandReply::text_only("Minimum swap amount is 25000 sats"));
+        }
+        {
+            let mut map = self.pending_reverse_swaps.lock().await;
+            map.insert(sender.to_string(), (amount, onchain_address.to_string()));
+        }
+        Ok(CommandReply::text_only(&format!(
+            "You are about to pay {} Sats from your lightning wallet to {}. Reply 'yes' to confirm or 'no' to abort.",
+            amount, onchain_address
+        )))
+    }
+
+    pub async fn process_reverse_swap_confirmation(&self, sender: &str, answer: &str) -> Result<Option<CommandReply>, SimpleError> {
+        let pending = {
+            let mut map = self.pending_reverse_swaps.lock().await;
+            map.remove(sender)
+        };
+        if let Some((amount, address)) = pending {
+            if answer.eq_ignore_ascii_case("yes") {
+                return Ok(Some(self.do_process_boltz_offchain_to_onchain_impl(sender, amount, &address).await?));
+            } else {
+                return Ok(Some(CommandReply::text_only("Swap aborted")));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn do_process_refund(&self, sender: &str, swap_id: &str) -> Result<CommandReply, SimpleError> {
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await, "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await, "Could not load wallet");
+        try_with!(self.lnbits_client.boltz_refund(&wallet.admin_key, swap_id).await, "Could not refund swap");
+        let mut reply = CommandReply::text_only("Refund requested");
+        reply.swap_id = Some(swap_id.to_string());
+        reply.admin_key = Some(wallet.admin_key.clone());
+        Ok(reply)
     }
 
     async fn matrix_id2lnbits_id(&self, matrix_id: &str) -> Result<LNBitsId, SimpleError> {
