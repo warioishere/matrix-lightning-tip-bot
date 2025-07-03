@@ -31,13 +31,13 @@ const HELP_COMMANDS: &str = "**!help** - Read this help: `!help`\n\
 **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n\
 **!boltz-onchain-to-offchain** - Swap onchain BTC to Lightning: `!boltz-onchain-to-offchain <amount> <refund-address>`\n\
 **!boltz-offchain-to-onchain** - Swap Lightning to onchain BTC: `!boltz-offchain-to-onchain <amount> <onchain-address>`\n\
-**!refund** - Refund a failed swap: `!refund <swap_id>`\n\
+**!refund** - Refund a failed offchain to onchain swap: `!refund <swap_id>`\n\
 **!version** - Print the version of this bot: `!version`";
 
 const HELP_BOLTZ_SWAPS: &str = "Boltz swaps convert funds between onchain and Lightning.\n\
-**!boltz-onchain-to-offchain <amount> <refund-address>** - Creates an address to send onchain BTC. Minimum 25000 sats. Boltz fees are added automatically. The bot notifies you when your Lightning funds arrive.\n\
-**!boltz-offchain-to-onchain <amount> <onchain-address>** - After you confirm, the bot sends an invoice including the swap fee. Pay it to receive onchain BTC.\n\
-**!refund <swap_id>** - Requests a refund for a failed swap. The bot tracks the refund and informs you once it's done.";
+**!boltz-onchain-to-offchain <amount> <refund-address>** - Creates an onchain-address where you need to send onchain BTC to. Minimum 25000 sats. Boltz fees are added automatically for your requested amount. The bot notifies you when your Lightning funds arrive on your wallet. If anything goes wrong, the funds will be send back to your <refund address>.\n\
+**!boltz-offchain-to-onchain <amount> <onchain-address>** - After you confirm with **yes**, the bot sends an invoice from your lightning wallet including the swap fee. The funds will then be swapped into onchain bitcoin an arrive on the supplied address. If anything goes wrong, you will be informed, but you need to use the !refund command with the swap ID to refund the lightning invoice you paid before.\n\
+**!refund <swap_id>** - Requests a refund for a failed offchain to onchain swap. The bot tracks the refund and informs you once it's done.";
 
 fn help_commands(with_prefix: bool) -> String {
     if with_prefix {
