@@ -7,7 +7,7 @@ Matrix-Lightning-Tip-Bot (MLTB) is a lightning network BTC tip bot for the matri
 While I have tested this bot alot until now, it is still in 'beta', don't put in more than you are willing to lose.
 
 # How to use
-MLTB can either be used directly or be self run. Running your own instance requires access to a LNbits (https://lnbits.com/) instance that exposes the users API at `/users/api/v1/user`.
+MLTB can either be used directly or be self run. Running your own instance requires access to a LNbits (https://lnbits.com/) instance that exposes the users API at `/users/api/v1/user`. For Boltz Swaps to work, boltz extension is required and it needs to be set as standard. Same applies for the wallet connection to Zeus, here you need LNDHub to be active for all users.
 
 ## Directly
 I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.yourdevice.ch. Invite it to a room to get started immediately. After joining the bot should display the possible commands which are:
@@ -125,7 +125,7 @@ A big thanks the people over at LightningTipBot and @AE9999. This fork-project i
 
 # Scheduled TODOs
 - make this work as an registered AS (Application Service) on your matrix homeserver instead of using a matrix-user-account
-- add onchain to offchain and offchain to onchain boltz atomic swap support so users can swap der sats (✅)
+- add onchain to offchain and offchain to onchain boltz swap support so users can swap der sats (✅)
 - generate your own ln-address with the command !generate-ln-address (✅)
 - send info when created invoice has been paid (✅)
 - limit usage to specific matrix instances (✅)
