@@ -31,8 +31,8 @@ const HELP_COMMANDS_BASE: &str = "**!tip** - Reply to a message to tip it: `!tip
 **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`\n\
 **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n";
 
-const HELP_COMMANDS_BOLTZ: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot replies with the deposit address, amount to send, swap ID for refunds, a QR code and the estimated Lightning payout)\n\
-**!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID)\n\
+const HELP_COMMANDS_BOLTZ: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot replies with the deposit address, amount to send, swap ID for refunds, a QR code and the estimated Lightning payout; amounts below Boltz's minimum are rejected)\n\
+**!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID; amounts below Boltz's minimum are rejected)\n\
 **!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`\nBot notifies you when swap status changes.\n";
 
 fn help_commands(with_prefix: bool, boltz_enabled: bool) -> String {
@@ -503,6 +503,13 @@ impl BusinessLogicContext {
             .get_btc_to_btc_pair()
             .ok_or_else(|| SimpleError::new("pair not found"))?;
 
+        if amount < pair.limits.minimal {
+            return Ok(CommandReply::text_only(
+                format!("Minimum swap amount is {} sats", pair.limits.minimal)
+                    .as_str(),
+            ));
+        }
+
         let net_amount = amount.saturating_sub(pair.fees.total(amount));
         let secp = bitcoin::secp256k1::Secp256k1::new();
         let keys = Keypair::new(&secp, &mut thread_rng());
@@ -557,6 +564,13 @@ impl BusinessLogicContext {
             .get_btc_to_btc_pair()
             .ok_or_else(|| SimpleError::new("pair not found"))?;
 
+        if amount < pair.limits.minimal {
+            return Ok(CommandReply::text_only(
+                format!("Minimum swap amount is {} sats", pair.limits.minimal)
+                    .as_str(),
+            ));
+        }
+
         let net_amount = amount.saturating_sub(pair.fees.total(amount));
 
         let msg = format!(
@@ -576,6 +590,13 @@ impl BusinessLogicContext {
             .map_err(|e| SimpleError::new(format!("{:?}", e)))?
             .get_btc_to_btc_pair()
             .ok_or_else(|| SimpleError::new("pair not found"))?;
+
+        if amount < pair.limits.minimal {
+            return Ok(CommandReply::text_only(
+                format!("Minimum swap amount is {} sats", pair.limits.minimal)
+                    .as_str(),
+            ));
+        }
         let net_amount = amount.saturating_sub(pair.fees.total(amount));
         let req = CreateReverseRequest {
             from: "BTC".to_string(),

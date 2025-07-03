@@ -26,14 +26,14 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!party** - Start a Party: `!party`
 * **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`
 * **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
-* **!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot tells you the deposit address, exact amount to send, shows a QR code, returns the swap ID for refunds and the estimated Lightning amount after fees)
-* **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID)
+* **!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot tells you the deposit address, exact amount to send, shows a QR code, returns the swap ID for refunds and the estimated Lightning amount after fees; amounts below Boltz’s minimum are rejected)
+* **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID; amounts below Boltz’s minimum are rejected)
 * **!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`
   *(Only shown if `--boltz-url` is configured)*
 * **!version** - Print the version of this bot: `!version`
 
 Boltz swap commands will only be available if `--boltz-url` is set in the configuration.
-The bot monitors active swaps and will post updates when their status changes.
+The bot monitors active swaps and will post updates when their status changes. Amounts below Boltz’s minimum will be rejected.
 
 In direct messages with the bot, the leading `!` can be omitted for all commands.
 
