@@ -20,7 +20,7 @@ pub mod matrix_bot {
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
     use url::Url;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet};
+    use crate::matrix_bot::commands::{balance, Command, donate, help, help_boltz_swaps, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet, boltz_onchain_to_offchain, boltz_offchain_to_onchain, refund};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -173,6 +173,8 @@ pub mod matrix_bot {
             invoice(sender, msg_body.as_str())
         } else if msg_body.starts_with("pay") {
             pay(sender, msg_body.as_str())
+        } else if msg_body.starts_with("help-boltz-swaps") {
+            help_boltz_swaps(!is_direct, is_encrypted)
         } else if msg_body.starts_with("help") {
             help(!is_direct, is_encrypted)
         } else if msg_body.starts_with("donate") {
@@ -189,6 +191,12 @@ pub mod matrix_bot {
             fiat_to_sats(sender, msg_body.as_str())
         } else if msg_body.starts_with("sats-to-fiat") {
             sats_to_fiat(sender, msg_body.as_str())
+        } else if msg_body.starts_with("boltz-onchain-to-offchain") {
+            boltz_onchain_to_offchain(sender, msg_body.as_str())
+        } else if msg_body.starts_with("boltz-offchain-to-onchain") {
+            boltz_offchain_to_onchain(sender, msg_body.as_str())
+        } else if msg_body.starts_with("refund") {
+            refund(sender, msg_body.as_str())
         } else {
             Ok(Command::None)
         }
@@ -525,11 +533,29 @@ pub mod matrix_bot {
                         };
                         let command = command.unwrap();
                         if command.is_none() {
+                            // maybe this is an answer to a pending swap
+                            if plain_message_body.trim().eq_ignore_ascii_case("yes") || plain_message_body.trim().eq_ignore_ascii_case("no") {
+                                if business_logic_contex.has_pending_reverse_swap(sender).await {
+                                    match business_logic_contex.process_reverse_swap_confirmation(sender, plain_message_body.trim()).await {
+                                        Ok(Some(reply)) => {
+                                            if let Err(error) = send_reply_to_event_in_room(&room, &event, reply.text.unwrap().as_str()).await {
+                                                log::warn!("Could not send confirmation reply due to {:?}..", error);
+                                            }
+                                        }
+                                        Ok(None) => {}
+                                        Err(error) => {
+                                            log::warn!("Error processing confirmation: {:?}", error);
+                                            let _ = send_reply_to_event_in_room(&room, &event, "I seem to be experiencing a problem please try again later").await;
+                                        }
+                                    }
+                                    return;
+                                }
+                            }
                             let room_is_direct = room.is_direct().await.unwrap_or(false);
                             if plain_message_body.trim_start().starts_with('!') || room_is_direct {
                                 if let Err(error) = send_reply_to_event_in_room(&room,
-                                                                                &event,
-                                                                                "Unknown command, please use `help` for list of commands").await {
+                                                                          &event,
+                                                                          "Unknown command, please use `help` for list of commands").await {
                                     log::warn!("Could not send unknown command message due to {:?}..", error);
                                 }
                             }
@@ -586,10 +612,13 @@ pub mod matrix_bot {
 
                         // Attaching image to message
                         if command_reply.image.is_some() {
+                            let name = command_reply
+                                .image_name
+                                .clone()
+                                .unwrap_or_else(|| "invoice.png".to_string());
                             // https://stackoverflow.com/questions/42240663/how-to-read-stdioread-from-a-vec-or-slice
 
-
-                            let upload_result = room.send_attachment("invoice.png",
+                            let upload_result = room.send_attachment(name.as_str(),
                                                                      &mime::IMAGE_PNG,
                                                                      command_reply.image.unwrap(),
                                                                      AttachmentConfig::new()).await;
@@ -625,7 +654,36 @@ pub mod matrix_bot {
                                             break;
                                         }
                                     }
-                                    sleep(Duration::from_secs(10)).await;
+                                sleep(Duration::from_secs(10)).await;
+                            }
+                        });
+                        }
+
+                        if command_reply.swap_id.is_some() && command_reply.admin_key.is_some() {
+                            let swap_id = command_reply.swap_id.clone().unwrap();
+                            let admin_key = command_reply.admin_key.clone().unwrap();
+                            let room_clone = room.clone();
+                            let ln_client = business_logic_contex.lnbits_client.clone();
+                            tokio::spawn(async move {
+                                use tokio::time::{sleep, Duration};
+                                loop {
+                                    let status = ln_client.boltz_status(&admin_key, &swap_id).await;
+                                    match status {
+                                        Ok(json) => {
+                                            let state = json.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                            if state != "pending" && state != "refunding" {
+                                                let text = format!("Swap {} status: {}", swap_id, state);
+                                                let content = RoomMessageEventContent::text_plain(text);
+                                                let _ = room_clone.send(content).await;
+                                                break;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!("Error checking swap status: {:?}", e);
+                                            break;
+                                        }
+                                    }
+                                    sleep(Duration::from_secs(60)).await;
                                 }
                             });
                         }
@@ -673,7 +731,7 @@ pub mod matrix_bot {
 
 #[cfg(test)]
 mod tests {
-    use super::commands::{Command, help};
+    use super::commands::{Command, help, help_boltz_swaps};
 
     fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
         let mut msg = message.trim().to_lowercase();
@@ -683,7 +741,9 @@ mod tests {
         if msg.starts_with('!') {
             msg = msg[1..].to_string();
         }
-        if msg.starts_with("help") {
+        if msg.starts_with("help-boltz-swaps") {
+            help_boltz_swaps(!is_direct, is_encrypted).unwrap()
+        } else if msg.starts_with("help") {
             help(!is_direct, is_encrypted).unwrap()
         } else {
             Command::None
@@ -706,5 +766,11 @@ mod tests {
     fn group_help_with_prefix() {
         let cmd = parse_help(false, true, "!help");
         match cmd { Command::Help { with_prefix, include_note } => { assert!(with_prefix); assert!(include_note); }, _ => panic!("expected help") }
+    }
+
+    #[test]
+    fn help_boltz_swaps_parsing() {
+        let cmd = parse_help(true, true, "help-boltz-swaps");
+        match cmd { Command::HelpBoltzSwaps { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help-boltz-swaps") }
     }
 }

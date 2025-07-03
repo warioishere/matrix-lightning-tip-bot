@@ -5,6 +5,7 @@
 pub mod lnbits_client {
     use std::time::Duration;
     use serde::{Deserialize, Serialize};
+    use serde_json;
     use uuid::Uuid;
     use crate::Config;
 
@@ -332,6 +333,51 @@ pub struct LNBitsClient {
                 .json::<LnAddressResponse>()
                 .await?;
 
+            Ok(response)
+        }
+
+        pub async fn boltz_create_swap(&self, wallet: &Wallet, amount: u64, refund_address: &str) -> Result<serde_json::Value, reqwest::Error> {
+            let headers = self.headers_with_key(&wallet.admin_key);
+            let url = format!("{}/boltz/api/v1/swap", self.url);
+            let body = serde_json::json!({
+                "wallet": wallet.id,
+                "amount": amount,
+                "refund_address": refund_address,
+                "asset": "BTC/BTC",
+                "direction": "receive",
+                "feerate": false
+            });
+            let response = self.client.post(url).headers(headers).json(&body).send().await?.json::<serde_json::Value>().await?;
+            Ok(response)
+        }
+
+        pub async fn boltz_create_reverse_swap(&self, wallet: &Wallet, amount: u64, onchain_address: &str, instant_settlement: bool) -> Result<serde_json::Value, reqwest::Error> {
+            let headers = self.headers_with_key(&wallet.admin_key);
+            let url = format!("{}/boltz/api/v1/swap/reverse", self.url);
+            let body = serde_json::json!({
+                "wallet": wallet.id,
+                "amount": amount,
+                "onchain_address": onchain_address,
+                "instant_settlement": instant_settlement,
+                "asset": "BTC/BTC",
+                "direction": "send",
+                "feerate": false
+            });
+            let response = self.client.post(url).headers(headers).json(&body).send().await?.json::<serde_json::Value>().await?;
+            Ok(response)
+        }
+
+        pub async fn boltz_refund(&self, admin_key: &str, swap_id: &str) -> Result<serde_json::Value, reqwest::Error> {
+            let headers = self.headers_with_key(admin_key);
+            let url = format!("{}/boltz/api/v1/swap/refund?swap_id={}", self.url, swap_id);
+            let response = self.client.post(url).headers(headers).send().await?.json::<serde_json::Value>().await?;
+            Ok(response)
+        }
+
+        pub async fn boltz_status(&self, admin_key: &str, swap_id: &str) -> Result<serde_json::Value, reqwest::Error> {
+            let headers = self.headers_with_key(admin_key);
+            let url = format!("{}/boltz/api/v1/swap/status?swap_id={}", self.url, swap_id);
+            let response = self.client.post(url).headers(headers).send().await?.json::<serde_json::Value>().await?;
             Ok(response)
         }
     }
