@@ -12,6 +12,8 @@ MLTB can either be used directly or be self run. Running your own instance requi
 ## Directly
 I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.yourdevice.ch. Invite it to a room to get started immediately. After joining the bot should display the possible commands which are:
 
+* **!help** - Read this help: `!help`
+* **!help-boltz** - Detailed help for Boltz commands: `!help-boltz`
 * **!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`
 * **!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`
 * **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`
@@ -21,16 +23,17 @@ I am are running a dedicated MLTB instance over at @lightning-wallet-bot:matrix.
 * **!pay** - Pay an invoice over Lightning: `!pay <invoice>`
 * **!transactions** - List your transactions: `!transactions`
 * **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`
-* **!help** - Read this help: `!help`
-* **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
 * **!party** - Start a Party: `!party`
 * **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`
 * **!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`
-* **!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot tells you the deposit address, exact amount to send, shows a QR code, returns the swap ID for refunds and the estimated Lightning amount after fees; amounts below Boltz’s minimum are rejected)
-* **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID; amounts below Boltz’s minimum are rejected)
+* **!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>`
+* **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>`
 * **!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`
   *(Only shown if `--boltz-url` is configured)*
+* **!donate** - Donate to the matrix-lighting-tip-bot project: `!donate <amount>`
 * **!version** - Print the version of this bot: `!version`
+
+Run `!help-boltz` for details on Boltz swap commands.
 
 Boltz swap commands will only be available if `--boltz-url` is set in the configuration.
 The bot monitors active swaps and will post updates when their status changes. Amounts below Boltz’s minimum will be rejected.

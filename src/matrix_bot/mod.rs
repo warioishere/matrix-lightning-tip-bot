@@ -23,7 +23,7 @@ pub mod matrix_bot {
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::Mutex;
-    use crate::matrix_bot::commands::{balance, Command, donate, help, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet, boltz_onchain2offchain, boltz_offchain2onchain, boltz_refund};
+    use crate::matrix_bot::commands::{balance, Command, donate, help, help_boltz, invoice, party, pay, send, tip, version, generate_ln_address, show_ln_addresses, fiat_to_sats, sats_to_fiat, transactions, link_to_zeus_wallet, boltz_onchain2offchain, boltz_offchain2onchain, boltz_refund};
     pub use crate::data_layer::data_layer::LNBitsId;
     use crate::matrix_bot::utils::parse_lnurl;
 
@@ -183,6 +183,8 @@ pub mod matrix_bot {
             invoice(sender, msg_body.as_str())
         } else if msg_body.starts_with("pay") {
             pay(sender, msg_body.as_str())
+        } else if msg_body.starts_with("help-boltz") {
+            help_boltz(!is_direct)
         } else if msg_body.starts_with("help") {
             help(!is_direct, is_encrypted)
         } else if msg_body.starts_with("donate") {
@@ -794,7 +796,7 @@ pub mod matrix_bot {
 
 #[cfg(test)]
 mod tests {
-    use super::commands::{Command, help};
+    use super::commands::{Command, help, help_boltz};
 
     fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
         let mut msg = message.trim().to_lowercase();
@@ -804,7 +806,9 @@ mod tests {
         if msg.starts_with('!') {
             msg = msg[1..].to_string();
         }
-        if msg.starts_with("help") {
+        if msg.starts_with("help-boltz") {
+            help_boltz(!is_direct).unwrap()
+        } else if msg.starts_with("help") {
             help(!is_direct, is_encrypted).unwrap()
         } else {
             Command::None
@@ -818,6 +822,12 @@ mod tests {
     }
 
     #[test]
+    fn dm_help_boltz() {
+        let cmd = parse_help(true, true, "help-boltz");
+        match cmd { Command::HelpBoltz { with_prefix } => { assert!(!with_prefix); }, _ => panic!("expected help-boltz") }
+    }
+
+    #[test]
     fn group_help_requires_prefix() {
         let cmd = parse_help(false, false, "help");
         assert!(cmd.is_none());
@@ -827,5 +837,11 @@ mod tests {
     fn group_help_with_prefix() {
         let cmd = parse_help(false, true, "!help");
         match cmd { Command::Help { with_prefix, include_note } => { assert!(with_prefix); assert!(include_note); }, _ => panic!("expected help") }
+    }
+
+    #[test]
+    fn group_help_boltz_with_prefix() {
+        let cmd = parse_help(false, true, "!help-boltz");
+        match cmd { Command::HelpBoltz { with_prefix } => { assert!(with_prefix); }, _ => panic!("expected help-boltz") }
     }
 }

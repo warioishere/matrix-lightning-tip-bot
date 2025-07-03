@@ -16,7 +16,9 @@ use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
 
-const HELP_COMMANDS_BASE: &str = "**!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`\n\
+const HELP_COMMANDS_BASE: &str = "**!help** - Read this help: `!help`\n\
+**!help-boltz** - Detailed Boltz help: `!help-boltz`\n\
+**!tip** - Reply to a message to tip it: `!tip <amount> [<memo>]`\n\
 **!generate-ln-address** - Get your own LN Address: `!generate-ln-address <your address name>`\n\
 **!show-ln-addresses** - Show your generated LN Addresses: `!show-ln-addresses`\n\
 **!balance** - Check your balance: `!balance`\n\
@@ -25,20 +27,23 @@ const HELP_COMMANDS_BASE: &str = "**!tip** - Reply to a message to tip it: `!tip
 **!pay** - Pay an invoice over Lightning: `!pay <invoice>`\n\
 **!transactions** - List your transactions: `!transactions`\n\
 **!link-to-zeus-wallet** - Connect your wallet in Zeus: `!link-to-zeus-wallet`\n\
-**!help** - Read this help: `!help`\n\
-**!donate** - Donate to the matrix-lightning-tip-bot project: `!donate <amount>`\n\
 **!party** - Start a Party: `!party`\n\
 **!fiat-to-sats** - Convert fiat to satoshis: `!fiat-to-sats <amount> <currency (USD, EUR, CHF)>`\n\
-**!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n";
+**!sats-to-fiat** - Convert satoshis to fiat: `!sats-to-fiat <amount> <currency (USD, EUR, CHF)>`\n\
+**!donate** - Donate to the matrix-lightning-tip-bot project: `!donate <amount>`\n";
 
-const HELP_COMMANDS_BOLTZ: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot replies with the deposit address, amount to send, swap ID for refunds, a QR code and the estimated Lightning payout; amounts below Boltz's minimum are rejected)\n\
+const HELP_COMMANDS_BOLTZ_SHORT: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>`\n\
+**!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>`\n\
+**!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`\n";
+
+const HELP_COMMANDS_BOLTZ_DETAIL: &str = "**!boltz-onchain2offchain** - Swap on-chain BTC to Lightning: `!boltz-onchain2offchain <amount>` (bot tells you the deposit address, exact amount to send, shows a QR code, returns the swap ID for refunds and the estimated Lightning amount after fees; amounts below Boltz's minimum are rejected)\n\
 **!boltz-offchain2onchain** - Swap Lightning to on-chain BTC: `!boltz-offchain2onchain <amount> <btc-address>` (bot shows the expected on-chain amount after fees, asks for confirmation and provides a swap ID; amounts below Boltz's minimum are rejected)\n\
 **!boltz-refund** - Request a refund for a swap: `!boltz-refund <swap-id>`\nBot notifies you when swap status changes.\n";
 
 fn help_commands(with_prefix: bool, boltz_enabled: bool) -> String {
     let mut base = if with_prefix { HELP_COMMANDS_BASE.to_string() } else { HELP_COMMANDS_BASE.replace('!', "") };
     if boltz_enabled {
-        let boltz = if with_prefix { HELP_COMMANDS_BOLTZ.to_string() } else { HELP_COMMANDS_BOLTZ.replace('!', "") };
+        let boltz = if with_prefix { HELP_COMMANDS_BOLTZ_SHORT.to_string() } else { HELP_COMMANDS_BOLTZ_SHORT.replace('!', "") };
         base.push_str(&boltz);
     }
     if with_prefix {
@@ -47,6 +52,14 @@ fn help_commands(with_prefix: bool, boltz_enabled: bool) -> String {
         base.push_str("**version** - Print the version of this bot: `version`");
     }
     base
+}
+
+fn boltz_help_commands(with_prefix: bool) -> String {
+    if with_prefix {
+        HELP_COMMANDS_BOLTZ_DETAIL.to_string()
+    } else {
+        HELP_COMMANDS_BOLTZ_DETAIL.replace('!', "")
+    }
 }
 
 pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
@@ -86,14 +99,14 @@ impl BusinessLogicContext {
     pub fn get_help_content(&self, with_prefix: bool, include_note: bool) -> String {
         if include_note {
             format!(
-                "{}\n\nMatrix-Lightning-Tip-Bot {}\n{}",
+                "{}\n\nMatrix-Lightning-Tip-Bot {}\n\n{}",
                 VERIFICATION_NOTE,
                 env!("CARGO_PKG_VERSION"),
                 help_commands(with_prefix, self.boltz_client.is_some())
             )
         } else {
             format!(
-                "Matrix-Lightning-Tip-Bot {}\n{}",
+                "Matrix-Lightning-Tip-Bot {}\n\n{}",
                 env!("CARGO_PKG_VERSION"),
                 help_commands(with_prefix, self.boltz_client.is_some())
             )
@@ -142,6 +155,10 @@ impl BusinessLogicContext {
             Command::Help { with_prefix, include_note } => {
                 try_with!(self.do_process_help(with_prefix, include_note).await,
                           "Could not process help")
+            },
+            Command::HelpBoltz { with_prefix } => {
+                try_with!(self.do_process_help_boltz(with_prefix).await,
+                          "Could not process help-boltz")
             },
             Command::Donate { sender, amount } => {
                 try_with!(self.do_process_donate(sender.as_str(), amount).await,
@@ -407,6 +424,14 @@ impl BusinessLogicContext {
     async fn do_process_help(&self, with_prefix: bool, include_note: bool) -> Result<CommandReply, SimpleError> {
         log::info!("processing help command ..");
         Ok(CommandReply::text_only(self.get_help_content(with_prefix, include_note).as_str()))
+    }
+
+    async fn do_process_help_boltz(&self, with_prefix: bool) -> Result<CommandReply, SimpleError> {
+        if self.boltz_client.is_none() {
+            return Ok(CommandReply::text_only("Boltz integration is disabled"));
+        }
+        log::info!("processing help-boltz command ..");
+        Ok(CommandReply::text_only(boltz_help_commands(with_prefix).as_str()))
     }
 
     async fn do_process_party(&self) -> Result<CommandReply, SimpleError> {

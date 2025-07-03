@@ -8,6 +8,7 @@ pub enum Command  {
     Invoice { sender: String, amount: u64, memo: Option<String> },
     Pay     { sender: String, invoice: String },
     Help    { with_prefix: bool, include_note: bool },
+    HelpBoltz { with_prefix: bool },
     Donate  { sender: String, amount: u64 },
     Party   { },
     Version { },
@@ -104,6 +105,10 @@ pub fn pay(sender:&str,
 
 pub fn help(with_prefix: bool, include_note: bool) -> Result<Command, SimpleError> {
     Ok(Command::Help { with_prefix, include_note })
+}
+
+pub fn help_boltz(with_prefix: bool) -> Result<Command, SimpleError> {
+    Ok(Command::HelpBoltz { with_prefix })
 }
 
 
