@@ -202,7 +202,10 @@ pub mod matrix_bot {
             Some(Command::Pay { .. }) => pay(sender, msg_body.as_str()),
             Some(Command::HelpBoltzSwaps { .. }) => help_boltz_swaps(!is_direct, is_encrypted),
             Some(Command::Help { .. }) => help(!is_direct, is_encrypted),
-            Some(Command::Donate { amount, .. }) => donate(sender, msg_body.as_str()),
+            Some(Command::Donate { amount, .. }) => Ok(Command::Donate {
+                sender: sender.to_string(),
+                amount,
+            }),
             Some(Command::Party { .. }) => party(),
             Some(Command::Version { .. }) => version(),
             Some(Command::GenerateLnAddress { .. }) => generate_ln_address(sender, msg_body.as_str()),
