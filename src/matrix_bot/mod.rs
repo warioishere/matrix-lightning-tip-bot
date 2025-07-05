@@ -26,7 +26,7 @@ pub mod matrix_bot {
     use crate::matrix_bot::utils::parse_lnurl;
 
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub(crate) struct ExtractedMessageBody {
         msg_body: Option<String>,
         formatted_msg_body: Option<String>
@@ -110,6 +110,12 @@ pub mod matrix_bot {
         } else {
             true
         }
+    }
+
+    fn strip_bot_prefix<'a>(msg: &'a str, bot_name: &str) -> Option<&'a str> {
+        msg.strip_prefix(bot_name)
+            .map(|rest| rest.trim_start())
+            .map(|rest| rest.strip_prefix(':').unwrap_or(rest).trim_start())
     }
 
     pub(crate) fn parse_command(msg_body: &str) -> Result<Option<Command>, SimpleError> {
@@ -506,24 +512,26 @@ pub mod matrix_bot {
                         }
 
                         let plain_message_body = extracted_msg_body.msg_body.clone().unwrap();
+                        let mut to_process = extracted_msg_body.clone();
 
-                        if plain_message_body.starts_with(bot_name.as_str()) {
-                            let result = send_reply_to_event_in_room(&room,
-                                                                     &event,
-                                                                     "Thanks for you message. I am but a simple bot. I will join any room you invite me to. Please run !help to see what I can do.").await;
-                            match result {
-                                Err(error) => {
+                        if let Some(rest) = strip_bot_prefix(&plain_message_body, bot_name.as_str()) {
+                            if rest.is_empty() {
+                                let result = send_reply_to_event_in_room(&room,
+                                    &event,
+                                    "Thanks for you message. I am but a simple bot. I will join any room you invite me to. Please run !help to see what I can do.").await;
+                                if let Err(error) = result {
                                     log::warn!("Could not send reply message due to {:?}..", error);
                                 }
-                                _ => { /* ignore */}
+                                return;
+                            } else {
+                                to_process.msg_body = Some(rest.to_string());
                             }
-                            return
                         }
 
                         let command = extract_command(&room,
                                                       sender,
                                                       &event,
-                                                      &extracted_msg_body).await;
+                                                      &to_process).await;
 
 
                         match command {
