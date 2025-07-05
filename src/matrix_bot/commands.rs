@@ -175,7 +175,7 @@ pub fn link_to_zeus_wallet(sender: &str) -> Result<Command, SimpleError> {
 pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !boltz-onchain-to-offchain <amount> <refund-address>");
+        bail!("Expected 2 arguments: !boltz-onchain-to-offchain <amount> <refund-address>");
     }
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let refund_address = split[2].to_string();
@@ -185,7 +185,7 @@ pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, Si
 pub fn boltz_offchain_to_onchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>");
+        bail!("Expected 2 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>");
     }
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let onchain_address = split[2].to_string();

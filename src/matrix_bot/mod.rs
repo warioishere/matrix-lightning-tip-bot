@@ -766,6 +766,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_boltz_onchain_to_offchain_missing_argument() {
+        let err = parse_command("!boltz-onchain-to-offchain 100").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !boltz-onchain-to-offchain <amount> <refund-address>"
+        );
+    }
+
+    #[test]
+    fn parse_boltz_offchain_to_onchain_missing_argument() {
+        let err = parse_command("!boltz-offchain-to-onchain 100").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>"
+        );
+    }
+
+    #[test]
     fn parse_send_command() {
         let cmd = parse_command("!send 50 @bob:example.org").unwrap();
         match cmd {
