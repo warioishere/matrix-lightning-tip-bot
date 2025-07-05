@@ -314,8 +314,9 @@ impl BusinessLogicContext {
                              memo: &Option<String>) -> Result<CommandReply, SimpleError>  {
         log::info!("processing send command ..");
 
-    	// If it's an LNURL, pay to the external wallet, else handle it internally
-        match parse_lnurl(recipient) {
+        // If it's an LNURL, pay to the external wallet, else handle it internally
+        let parsed_lnurl = parse_lnurl(recipient);
+        match &parsed_lnurl {
             Some(lnurl) => {
                 let client = lnurl::Builder::default()
                     .build_async().map_err(|e| SimpleError::from(e))?;
@@ -361,7 +362,7 @@ impl BusinessLogicContext {
                                              recipient).as_str())
         };
 
-        if parse_lnurl(recipient).is_none() {
+        if parsed_lnurl.is_none() {
             let receiver_msg = if memo.is_some() {
                 format!("{} you received {} Sats from {} with memo {}", recipient, amount, sender, memo.clone().unwrap())
             } else {
