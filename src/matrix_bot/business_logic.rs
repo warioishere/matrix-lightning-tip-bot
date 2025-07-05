@@ -318,9 +318,9 @@ impl BusinessLogicContext {
         match parse_lnurl(recipient) {
             Some(lnurl) => {
                 let client = lnurl::Builder::default()
-                    .build_blocking().map_err(|e| SimpleError::from(e))?;
+                    .build_async().map_err(|e| SimpleError::from(e))?;
 
-                let res = client.make_request(&lnurl.url).map_err(|e| SimpleError::from(e))?;
+                let res = client.make_request(&lnurl.url).await.map_err(|e| SimpleError::from(e))?;
 
                 match res {
                     LnUrlResponse::LnUrlPayResponse(pay) => {
@@ -328,7 +328,7 @@ impl BusinessLogicContext {
                         let res = client.get_invoice(&pay, amount * 1_000, None, match memo {
                             Some(memo) => Some(memo.as_str()),
                             None => None,
-                        }).map_err(|e| SimpleError::from(e))?;
+                        }).await.map_err(|e| SimpleError::from(e))?;
 
                         try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, res.invoice()).await,
                             "Could not pay invoice");
@@ -699,12 +699,12 @@ impl BusinessLogicContext {
                                              bolt11_invoice: &str) -> Result<(), SimpleError> {
 
         let parsed_invoice: lightning_invoice::Bolt11Invoice =
-            str::parse::<lightning_invoice::Bolt11Invoice>(bolt11_invoice).unwrap();
+            str::parse::<lightning_invoice::Bolt11Invoice>(bolt11_invoice)
+                .map_err(|e| SimpleError::new(e.to_string()))?;
 
-        if parsed_invoice.amount_milli_satoshis().is_none() {
-            bail!( "Incorrect invoice")
-        }
-        let invoice_milli_satoshi_amount = parsed_invoice.amount_milli_satoshis().unwrap();
+        let invoice_milli_satoshi_amount = parsed_invoice
+            .amount_milli_satoshis()
+            .ok_or_else(|| SimpleError::new("Incorrect invoice"))?;
 
         log::info!("Got an amount for {:?} satoshis ..", invoice_milli_satoshi_amount / 1000);
 
@@ -764,5 +764,31 @@ mod tests {
         ctx.insert_member_ids(room_id.clone(), vec![user.clone()]).await;
         let cached = ctx.get_cached_member_ids(&room_id).await;
         assert_eq!(cached.unwrap(), vec![user]);
+    }
+
+    #[tokio::test]
+    async fn invalid_invoice_returns_error() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(
+            LNBitsClient::new(&config),
+            DataLayer::new(&config),
+            &config,
+        );
+
+        let result = ctx
+            .pay_bolt11_invoice_as_matrix_is("@alice:example.org", "invalid")
+            .await;
+
+        assert!(result.is_err());
     }
 }
