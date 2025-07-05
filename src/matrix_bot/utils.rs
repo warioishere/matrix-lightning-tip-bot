@@ -18,7 +18,7 @@ pub fn markdown_to_html(input: &str) -> String {
     let parser = parser.map(|event| match event {
         Event::SoftBreak => Event::HardBreak,
         // ensure placeholders like <invoice> are shown literally
-        Event::Html(text) => Event::Text(text.into_string().into()),
+        Event::Html(text) | Event::InlineHtml(text) => Event::Text(text.into_string().into()),
         other => other,
     });
     let mut html_output = String::new();
@@ -43,6 +43,6 @@ mod tests {
     fn keeps_angle_brackets() {
         let input = "Expected 1 argument: !pay <invoice>";
         let html = markdown_to_html(input);
-        assert!(html.contains("!pay <invoice>"));
+        assert!(html.contains("&lt;invoice&gt;"));
     }
 }
