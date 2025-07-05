@@ -15,7 +15,7 @@ pub mod matrix_bot {
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
     use mime;
-    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName, UserId};
+    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
     
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
@@ -173,68 +173,47 @@ pub mod matrix_bot {
         }
     }
 
-    // TODO(AE): Terrible code refactor
     async fn find_user_in_room(partial_user_id: &str,
                                room: &Room) -> Result<Option<OwnedUserId>, SimpleError> {
 
         log::info!("Trying to find {:?} in room ..", partial_user_id);
-        if partial_user_id.is_empty() { return Ok(None) }
-
-        let split :Vec<&str> = partial_user_id.split(':').collect();
-        if split.len() > 1 { return Ok(None) }
-
-        let partial_user_id = split[0];
-
-        if partial_user_id.is_empty()
-            || ((partial_user_id.chars().next().unwrap() == '@') && partial_user_id.len() == 1) {
-            return Ok(None)
+        if partial_user_id.is_empty() {
+            return Ok(None);
         }
 
-        let partial_user_id: String = if partial_user_id.chars().next().unwrap() == '@' { partial_user_id[1..].to_string() }
-                                      else { partial_user_id.to_string() };
+        // Try parsing as a full user ID first
+        if let Ok(user_id) = UserId::parse(partial_user_id) {
+            return Ok(room
+                .get_member(&user_id)
+                .await
+                .map_err(|e| SimpleError::new(format!("Could not get member: {:?}", e)))?
+                .map(|_| user_id.to_owned()));
+        }
+
+        let localpart = partial_user_id
+            .strip_prefix('@')
+            .unwrap_or(partial_user_id);
+
+        let members: Vec<RoomMember> = try_with!(
+            room.members_no_sync(RoomMemberships::JOIN).await,
+            "Could not get room members"
+        );
 
         let mut matched_user_id: Option<OwnedUserId> = None;
 
-        let members: Vec<RoomMember> = try_with!(room.members_no_sync(RoomMemberships::JOIN).await,
-                                                 "Could not get room members");
-
         for member in members {
-            log::info!("comparing {:?} & {:?} vs {:?}",
-                       member.user_id(),
-                       member.user_id().localpart(),
-                       partial_user_id);
-            if member.user_id().localpart() == partial_user_id {
+            log::info!("comparing {:?} vs {:?}", member.user_id().localpart(), localpart);
+            if member.user_id().localpart() == localpart {
                 if matched_user_id.is_none() {
                     matched_user_id = Some(member.user_id().to_owned());
                 } else {
                     log::info!("Found multiple possible matching user names, not returning anything");
-                    return Ok(None)
+                    return Ok(None);
                 }
             }
         }
 
         Ok(matched_user_id)
-    }
-
-    fn try_to_parse_into_full_username(username: &str) -> Option<OwnedUserId> {
-        log::info!("Trying to parse {:?} into a full username ..", username);
-        let split: Vec<&str> = username.split(':').collect();
-        if split.len() != 2 {
-            return  None
-        }
-
-        let server_name = <&ServerName>::try_from(split[1]);
-        if server_name.is_err() {
-            return None
-        }
-        let server_name = server_name.unwrap();
-
-        let user_id = UserId::parse_with_server_name(username, server_name);
-
-        match user_id {
-            Ok(user_id) => { Some(user_id) }
-            _ => None
-        }
     }
 
     async fn preprocess_send_message(extracted_msg_body: &ExtractedMessageBody,
@@ -253,12 +232,14 @@ pub mod matrix_bot {
             return Ok(raw_message)
         }
 
-        let mut target_id: Option<OwnedUserId> = try_to_parse_into_full_username(split_message[2]);
-        target_id = if target_id.is_some() { target_id }
-                    else {
-                        try_with!(find_user_in_room(split_message[2], room).await,
-                                      "Error while trying to find user")
-                    };
+        let mut target_id: Option<OwnedUserId> =
+            UserId::parse(split_message[2]).ok().map(|u| u.to_owned());
+        target_id = if target_id.is_some() {
+            target_id
+        } else {
+            try_with!(find_user_in_room(split_message[2], room).await,
+                      "Error while trying to find user")
+        };
         target_id = if target_id.is_some() { target_id }
                     else {
                         if extracted_msg_body.formatted_msg_body.is_none() {
@@ -704,7 +685,8 @@ pub mod matrix_bot {
 mod tests {
     use super::commands::{help, help_boltz_swaps, Command};
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk::ruma::{owned_room_id, MilliSecondsSinceUnixEpoch};
+    use matrix_sdk::ruma::{owned_room_id, owned_user_id, MilliSecondsSinceUnixEpoch};
+    use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder};
     use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
     use crate::matrix_bot::matrix_bot::ExtractedMessageBody;
     use serde_json::{json, from_value as from_json_value};
@@ -803,6 +785,46 @@ mod tests {
         });
         let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
         let extracted = crate::matrix_bot::matrix_bot::ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
+        match cmd {
+            Command::Send { amount, ref recipient, .. } => {
+                assert_eq!(amount, 50);
+                assert_eq!(recipient, "@bob:example.org");
+            }
+            _ => panic!("expected send"),
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_send_partial_user() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+
+        let room_id = owned_room_id!("!test:example.org");
+        let bob = owned_user_id!("@bob:example.org");
+
+        let member_event = EventFactory::new()
+            .room(&room_id)
+            .member(&bob)
+            .into_raw();
+
+        let builder = JoinedRoomBuilder::new(&room_id).add_state_event(member_event);
+        let room = mock_server.sync_room(&client, builder).await;
+
+        let message = "!send 50 @bob";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$partial", 
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
 
         let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
             .await
