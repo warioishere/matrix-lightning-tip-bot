@@ -14,6 +14,7 @@ pub mod matrix_bot {
     use crate::lnbits_client::lnbits_client::LNBitsClient;
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
+    use std::future::Future;
     use mime;
     use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
     
@@ -361,6 +362,19 @@ pub mod matrix_bot {
 
     }
 
+    pub(crate) async fn poll_status<F, Fut>(interval: Duration, mut action: F) -> Option<String>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Option<String>>,
+    {
+        loop {
+            if let Some(res) = action().await {
+                return Some(res);
+            }
+            sleep(interval).await;
+        }
+    }
+
     pub struct MatrixBot {
         client: Client,
         business_logic_contex: BusinessLogicContext,
@@ -589,26 +603,25 @@ pub mod matrix_bot {
                             let room_clone = room.clone();
                             let ln_client = business_logic_contex.lnbits_client.clone();
                             tokio::spawn(async move {
-                                use tokio::time::{sleep, Duration};
-                                loop {
-                                    let status = ln_client.invoice_status(&in_key, &payment_hash).await;
-                                    match status {
-                                        Ok(true) => {
-                                            let content = RoomMessageEventContent::text_plain("Invoice has been paid.");
-                                            if let Err(e) = room_clone.send(content).await {
-                                                log::warn!("Could not send invoice paid notification: {:?}", e);
-                                            }
-                                            break;
-                                        }
-                                        Ok(false) => {}
+                                let msg = poll_status(Duration::from_secs(10), || async {
+                                    match ln_client.invoice_status(&in_key, &payment_hash).await {
+                                        Ok(true) => Some("Invoice has been paid.".to_string()),
+                                        Ok(false) => None,
                                         Err(e) => {
                                             log::warn!("Error checking invoice status: {:?}", e);
-                                            break;
+                                            Some(String::new())
                                         }
                                     }
-                                sleep(Duration::from_secs(10)).await;
-                            }
-                        });
+                                }).await;
+                                if let Some(text) = msg {
+                                    if !text.is_empty() {
+                                        let content = RoomMessageEventContent::text_plain(text);
+                                        if let Err(e) = room_clone.send(content).await {
+                                            log::warn!("Could not send invoice paid notification: {:?}", e);
+                                        }
+                                    }
+                                }
+                            });
                         }
 
                         if command_reply.swap_id.is_some() && command_reply.admin_key.is_some() {
@@ -617,25 +630,27 @@ pub mod matrix_bot {
                             let room_clone = room.clone();
                             let ln_client = business_logic_contex.lnbits_client.clone();
                             tokio::spawn(async move {
-                                use tokio::time::{sleep, Duration};
-                                loop {
-                                    let status = ln_client.boltz_status(&admin_key, &swap_id).await;
-                                    match status {
+                                let msg = poll_status(Duration::from_secs(60), || async {
+                                    match ln_client.boltz_status(&admin_key, &swap_id).await {
                                         Ok(json) => {
                                             let state = json.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
                                             if state != "pending" && state != "refunding" {
-                                                let text = format!("Swap {} status: {}", swap_id, state);
-                                                let content = RoomMessageEventContent::text_plain(text);
-                                                let _ = room_clone.send(content).await;
-                                                break;
+                                                Some(format!("Swap {} status: {}", swap_id, state))
+                                            } else {
+                                                None
                                             }
                                         }
                                         Err(e) => {
                                             log::warn!("Error checking swap status: {:?}", e);
-                                            break;
+                                            Some(String::new())
                                         }
                                     }
-                                    sleep(Duration::from_secs(60)).await;
+                                }).await;
+                                if let Some(text) = msg {
+                                    if !text.is_empty() {
+                                        let content = RoomMessageEventContent::text_plain(text);
+                                        let _ = room_clone.send(content).await;
+                                    }
                                 }
                             });
                         }
@@ -690,6 +705,7 @@ mod tests {
     use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
     use crate::matrix_bot::matrix_bot::ExtractedMessageBody;
     use serde_json::{json, from_value as from_json_value};
+    use tokio::time::Duration;
 
 
     fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
@@ -943,5 +959,30 @@ mod tests {
             .await
             .unwrap();
         assert!(cmd.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_status_completes() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        let counter = Arc::new(Mutex::new(0));
+        let c = counter.clone();
+        let result = super::matrix_bot::poll_status(Duration::from_millis(1), move || {
+            let c = c.clone();
+            async move {
+                let mut num = c.lock().await;
+                *num += 1;
+                if *num >= 3 {
+                    Some("done".to_string())
+                } else {
+                    None
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.as_deref(), Some("done"));
+        assert_eq!(*counter.lock().await, 3);
     }
 }
