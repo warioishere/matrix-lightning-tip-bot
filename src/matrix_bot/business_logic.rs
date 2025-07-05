@@ -110,11 +110,13 @@ impl BusinessLogicContext {
         Ok(self.member_cache.lock().await.get(room.room_id()).cloned().unwrap_or_default())
     }
 
+    #[cfg(test)]
     pub async fn insert_member_ids(&self, room_id: OwnedRoomId, ids: Vec<OwnedUserId>) {
         let mut cache = self.member_cache.lock().await;
         cache.insert(room_id, ids);
     }
 
+    #[cfg(test)]
     pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<Vec<OwnedUserId>> {
         let cache = self.member_cache.lock().await;
         cache.get(room_id).cloned()
