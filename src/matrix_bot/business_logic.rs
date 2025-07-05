@@ -258,29 +258,32 @@ impl BusinessLogicContext {
     }
 
     async fn get_fiat_to_btc_rate(&self, currency: &str) -> Result<f64, SimpleError> {
-    let url = format!("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={}", currency.to_lowercase());
-    log::info!("Sending request to CoinGecko for currency: {}", currency);
+        let url = format!(
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={}",
+            currency.to_lowercase()
+        );
+        log::info!("Sending request to CoinGecko for currency: {}", currency);
 
-    let response = reqwest::get(&url).await;
-    if let Err(err) = &response {
-        log::error!("Error while sending request to CoinGecko: {}", err);
-        return Err(SimpleError::new(err.to_string()));
-    }
+        let json: serde_json::Value = reqwest::get(&url)
+            .await
+            .map_err(SimpleError::from)?
+            .json()
+            .await
+            .map_err(SimpleError::from)?;
 
-    let json = response.unwrap().json::<serde_json::Value>().await;
-    if let Err(err) = &json {
-        log::error!("Error while parsing response JSON: {}", err);
-        return Err(SimpleError::new(err.to_string()));
-    }
+        let rate = json
+            .get("bitcoin")
+            .and_then(|v| v.get(&currency.to_lowercase()))
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| SimpleError::new("Missing conversion rate"))?;
 
-    let rate = json.unwrap()["bitcoin"][currency.to_lowercase()].as_f64().unwrap_or(0.0);
-    if rate == 0.0 {
-        log::error!("Received invalid rate from CoinGecko for currency: {}", currency);
-        return Err(SimpleError::new("Invalid conversion rate"));
-    }
+        if rate == 0.0 {
+            log::error!("Received zero rate from CoinGecko for currency: {}", currency);
+            return Err(SimpleError::new("Invalid conversion rate"));
+        }
 
-    log::info!("Received conversion rate: {} for currency: {}", rate, currency);
-    Ok(rate)
+        log::info!("Received conversion rate: {} for currency: {}", rate, currency);
+        Ok(rate)
     }
 
     // Fiat in Sats umrechnen
