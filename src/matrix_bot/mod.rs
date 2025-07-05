@@ -526,14 +526,9 @@ pub mod matrix_bot {
                         match command {
                             Err(error) => {
                                 log::warn!("Error occurred while extracting command {:?}..", error);
-                                let result = send_reply_to_event_in_room(&room,
-                                                                         &event,
-                                                                         "Unknown command, please use `help` for list of commands").await;
-                                match result {
-                                    Err(error) => {
-                                        log::warn!("Could not even send error message due to {:?}..", error);
-                                    }
-                                    _ => { /* ignore */}
+                                let reply = error.to_string();
+                                if let Err(err) = send_reply_to_event_in_room(&room, &event, reply.as_str()).await {
+                                    log::warn!("Could not even send error message due to {:?}..", err);
                                 }
                                 return
                             }
@@ -751,6 +746,12 @@ mod tests {
             Some(Command::Tip { amount, .. }) => assert_eq!(amount, 100),
             _ => panic!("expected tip"),
         }
+    }
+
+    #[test]
+    fn parse_tip_missing_argument() {
+        let err = parse_command("!tip").unwrap_err();
+        assert!(err.to_string().contains("Expected"));
     }
 
     #[test]
