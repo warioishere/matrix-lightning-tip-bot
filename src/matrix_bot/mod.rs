@@ -694,12 +694,12 @@ pub mod matrix_bot {
         }
 
         fn bot_name(&self) -> String {
-            let parts: Vec<&str> = self.config.matrix_server.split(':').collect();
-            if parts.is_empty() || parts[0].len() < 1 {
-                log::warn!("Could not parse my own name from config, please check it");
-                "".to_string()
-            } else {
-                parts[0][1..].to_owned()
+            match UserId::parse(self.config.matrix_username.as_str()) {
+                Ok(user_id) => user_id.localpart().to_owned(),
+                Err(e) => {
+                    log::warn!("Could not parse my own name from config: {:?}", e);
+                    "".to_string()
+                }
             }
         }
 
