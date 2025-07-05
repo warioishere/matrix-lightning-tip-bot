@@ -48,8 +48,8 @@ impl Command {
 
 pub fn tip(sender:&str, text: &str, replyee: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
-    if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+    if split.len() < 3 {
+        bail!("Expected at least 2 arguments: !tip <amount> <comment>")
     }
     let amount =   try_with!(split[1].parse::<u64>(), "could not parse value");
     let memo = if split.len() > 2 { Some(split[2..].join(" ") )  }
@@ -68,8 +68,8 @@ pub fn send(sender:&str,
             text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
 
-    if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+    if split.len() < 3 {
+        bail!("Expected 2 arguments: !send <amount> <receiver> [memo]")
     }
     let amount =  try_with!(split[1].parse::<u64>(), "could not parse value");
     let recipient = String::from(split[2]);
@@ -85,7 +85,7 @@ pub fn invoice(sender:&str,
                text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+        bail!("Expected 1 argument: !invoice <amount> [memo]")
     }
     let amount =  try_with!(split[1].parse::<u64>(), "could not parse value");
     let memo = if split.len() > 2 { Some(split[2..].join(" ") )  }
@@ -97,7 +97,7 @@ pub fn pay(sender:&str,
            text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+        bail!("Expected 1 argument: !pay <invoice>")
     }
     let invoice = String::from(split[1]);
     Ok(Command::Pay { sender: String::from(sender),
@@ -116,7 +116,7 @@ pub fn help_boltz_swaps(with_prefix: bool, include_note: bool) -> Result<Command
 pub fn donate(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+        bail!("Expected 1 argument: !donate <amount>")
     }
     let amount =  try_with!(split[1].parse::<u64>(), "Could not parse value");
     Ok(Command::Donate { sender: String::from(sender),
@@ -134,7 +134,7 @@ pub fn version() -> Result<Command, SimpleError> {
 pub fn generate_ln_address(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 2 {
-        bail!("Expected a at least 2 arguments")
+        bail!("Expected 1 argument: !generate-ln-address <username>")
     }
     let username = split[1].to_string();
     Ok(Command::GenerateLnAddress { sender: sender.to_string(), username })
@@ -147,7 +147,7 @@ pub fn show_ln_addresses(sender: &str) -> Result<Command, SimpleError> {
 pub fn fiat_to_sats(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !fiat-to-sats <amount> <currency>");
+        bail!("Expected 2 arguments: !fiat-to-sats <amount> <currency>");
     }
     let amount = try_with!(split[1].parse::<f64>(), "Could not parse amount");
     let currency = split[2].to_string();
@@ -157,7 +157,7 @@ pub fn fiat_to_sats(sender: &str, text: &str) -> Result<Command, SimpleError> {
 pub fn sats_to_fiat(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !sats-to-fiat <amount> <currency>");
+        bail!("Expected 2 arguments: !sats-to-fiat <amount> <currency>");
     }
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let currency = split[2].to_string();
@@ -175,7 +175,7 @@ pub fn link_to_zeus_wallet(sender: &str) -> Result<Command, SimpleError> {
 pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !boltz-onchain-to-offchain <amount> <refund-address>");
+        bail!("Expected 2 arguments: !boltz-onchain-to-offchain <amount> <refund-address>");
     }
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let refund_address = split[2].to_string();
@@ -185,7 +185,7 @@ pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, Si
 pub fn boltz_offchain_to_onchain(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 3 {
-        bail!("Expected at least 3 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>");
+        bail!("Expected 2 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>");
     }
     let amount = try_with!(split[1].parse::<u64>(), "Could not parse amount");
     let onchain_address = split[2].to_string();
@@ -195,7 +195,7 @@ pub fn boltz_offchain_to_onchain(sender: &str, text: &str) -> Result<Command, Si
 pub fn refund(sender: &str, text: &str) -> Result<Command, SimpleError> {
     let split = text.split_whitespace().collect::<Vec<&str>>();
     if split.len() < 2 {
-        bail!("Expected at least 2 arguments: !refund <swap_id>");
+        bail!("Expected 1 argument: !refund <swap_id>");
     }
     let swap_id = split[1].to_string();
     Ok(Command::Refund { sender: sender.to_string(), swap_id })

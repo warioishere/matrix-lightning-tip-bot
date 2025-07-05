@@ -13,6 +13,8 @@ use crate::matrix_bot::utils::parse_lnurl;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use matrix_sdk::{Room, RoomMemberships, room::RoomMember};
+use matrix_sdk::ruma::{OwnedRoomId, OwnedUserId};
 
 const HELP_COMMANDS: &str = "**!help** - Read this help: `!help`\n\
 **!help-boltz-swaps** - Learn how swaps and refunds work: `!help-boltz-swaps`\n\
@@ -63,6 +65,7 @@ pub struct BusinessLogicContext  {
     data_layer: DataLayer,
     config: Config,
     pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
+    member_cache: Arc<Mutex<HashMap<OwnedRoomId, Vec<OwnedUserId>>>>,
 }
 
 impl BusinessLogicContext {
@@ -75,6 +78,7 @@ impl BusinessLogicContext {
             data_layer,
             config: config.clone(),
             pending_reverse_swaps: Arc::new(Mutex::new(HashMap::new())),
+            member_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -85,6 +89,37 @@ impl BusinessLogicContext {
     pub async fn has_pending_reverse_swap(&self, sender: &str) -> bool {
         let map = self.pending_reverse_swaps.lock().await;
         map.contains_key(sender)
+    }
+
+    pub async fn update_room_members(&self, room: &Room) -> Result<(), SimpleError> {
+        let members: Vec<RoomMember> = try_with!(
+            room.members_no_sync(RoomMemberships::JOIN).await,
+            "Could not get room members"
+        );
+        let ids = members.into_iter().map(|m| m.user_id().to_owned()).collect();
+        let mut cache = self.member_cache.lock().await;
+        cache.insert(room.room_id().to_owned(), ids);
+        Ok(())
+    }
+
+    pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<Vec<OwnedUserId>, SimpleError> {
+        if let Some(ids) = self.member_cache.lock().await.get(room.room_id()).cloned() {
+            return Ok(ids);
+        }
+        self.update_room_members(room).await?;
+        Ok(self.member_cache.lock().await.get(room.room_id()).cloned().unwrap_or_default())
+    }
+
+    #[cfg(test)]
+    pub async fn insert_member_ids(&self, room_id: OwnedRoomId, ids: Vec<OwnedUserId>) {
+        let mut cache = self.member_cache.lock().await;
+        cache.insert(room_id, ids);
+    }
+
+    #[cfg(test)]
+    pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<Vec<OwnedUserId>> {
+        let cache = self.member_cache.lock().await;
+        cache.get(room_id).cloned()
     }
 
     pub fn get_help_content(&self, with_prefix: bool, include_note: bool) -> String {
@@ -702,5 +737,32 @@ impl BusinessLogicContext {
                                    "Could not load invoice");
 
         Ok((invoice, wallet.in_key.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cache_roundtrip() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(LNBitsClient::new(&config), DataLayer::new(&config), &config);
+        let room_id = OwnedRoomId::try_from("!room:example.org").unwrap();
+        let user = OwnedUserId::try_from("@alice:example.org").unwrap();
+
+        ctx.insert_member_ids(room_id.clone(), vec![user.clone()]).await;
+        let cached = ctx.get_cached_member_ids(&room_id).await;
+        assert_eq!(cached.unwrap(), vec![user]);
     }
 }

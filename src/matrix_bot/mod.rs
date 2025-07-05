@@ -4,18 +4,18 @@ mod utils;
 
 pub mod matrix_bot {
 
-    use matrix_sdk::{config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent, Client, Room, RoomMemberships, RoomState};
+    use matrix_sdk::{config::SyncSettings, ruma::events::room::member::{StrippedRoomMemberEvent, OriginalSyncRoomMemberEvent}, Client, Room, RoomState};
 
     use matrix_sdk::attachment::AttachmentConfig;
-    use matrix_sdk::room::RoomMember;
     use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
 
     use crate::{Config, DataLayer};
     use crate::lnbits_client::lnbits_client::LNBitsClient;
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
+    use std::future::Future;
     use mime;
-    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, ServerName, UserId};
+    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
     
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
@@ -25,14 +25,14 @@ pub mod matrix_bot {
     use crate::matrix_bot::utils::parse_lnurl;
 
 
-    #[derive(Debug)]
-    struct ExtractedMessageBody {
+    #[derive(Debug, Clone)]
+    pub(crate) struct ExtractedMessageBody {
         msg_body: Option<String>,
         formatted_msg_body: Option<String>
     }
 
     impl ExtractedMessageBody {
-        fn new(msg_body: Option<String>,
+        pub(crate) fn new(msg_body: Option<String>,
                formatted_msg_body: Option<String>) -> ExtractedMessageBody {
             ExtractedMessageBody {
                 msg_body,
@@ -40,7 +40,7 @@ pub mod matrix_bot {
             }
         }
 
-        fn empty() ->  ExtractedMessageBody{
+        pub(crate) fn empty() ->  ExtractedMessageBody{
             ExtractedMessageBody::new(None, None)
         }
     }
@@ -111,10 +111,53 @@ pub mod matrix_bot {
         }
     }
 
-    async fn extract_command(room: &Room,
+    fn strip_bot_prefix<'a>(msg: &'a str, bot_name: &str) -> Option<&'a str> {
+        msg.strip_prefix(bot_name)
+            .map(|rest| rest.trim_start())
+            .map(|rest| rest.strip_prefix(':').unwrap_or(rest).trim_start())
+    }
+
+    pub(crate) fn parse_command(msg_body: &str) -> Result<Option<Command>, SimpleError> {
+        let mut msg = msg_body.trim().to_lowercase();
+        if msg.is_empty() {
+            return Ok(None);
+        }
+
+        if msg.starts_with('!') {
+            msg = msg[1..].to_string();
+        }
+
+        let result = match msg.split_whitespace().next() {
+            Some("tip") => tip("", msg.as_str(), "").map(Some),
+            Some("balance") => balance("").map(Some),
+            Some("transactions") => transactions("").map(Some),
+            Some("link-to-zeus-wallet") => link_to_zeus_wallet("").map(Some),
+            Some("send") => send("", msg.as_str()).map(Some),
+            Some("invoice") => invoice("", msg.as_str()).map(Some),
+            Some("pay") => pay("", msg.as_str()).map(Some),
+            Some("help-boltz-swaps") => help_boltz_swaps(true, true).map(Some),
+            Some("help") => help(true, true).map(Some),
+            Some("donate") => donate("", msg.as_str()).map(Some),
+            Some("party") => party().map(Some),
+            Some("version") => version().map(Some),
+            Some("generate-ln-address") => generate_ln_address("", msg.as_str()).map(Some),
+            Some("show-ln-addresses") => show_ln_addresses("").map(Some),
+            Some("fiat-to-sats") => fiat_to_sats("", msg.as_str()).map(Some),
+            Some("sats-to-fiat") => sats_to_fiat("", msg.as_str()).map(Some),
+            Some("boltz-onchain-to-offchain") => boltz_onchain_to_offchain("", msg.as_str()).map(Some),
+            Some("boltz-offchain-to-onchain") => boltz_offchain_to_onchain("", msg.as_str()).map(Some),
+            Some("refund") => refund("", msg.as_str()).map(Some),
+            _ => Ok(None),
+        }?;
+
+        Ok(result)
+    }
+
+    pub(crate) async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
-                             extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
+                             extracted_msg_body: &ExtractedMessageBody,
+                             business_logic_contex: &BusinessLogicContext) -> Result<Command, SimpleError> {
         let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
         let mut msg_body = last_line(raw.as_str());
         let is_direct = room.is_direct().await.unwrap_or(false);
@@ -128,116 +171,94 @@ pub mod matrix_bot {
             msg_body = msg_body[1..].to_string();
         }
 
-        if msg_body.starts_with("tip") {
-            let replyee = extracted_msg_body
-                .formatted_msg_body
-                .as_deref()
-                .and_then(|body| extract_user_from_formatted_msg_body(body));
-            let replyee = replyee.ok_or_else(|| {
-                log::warn!("Could not determine reply target from formatted body");
-                SimpleError::new("No reply target")
-            })?;
-            tip(
-                sender,
-                msg_body.as_str(),
-                replyee.as_str(),
-            )
-        }  else if msg_body.starts_with("balance") {
-            balance(sender)
-        } else if msg_body.starts_with("transactions") {
-            transactions(sender)
-        } else if msg_body.starts_with("link-to-zeus-wallet") {
-            link_to_zeus_wallet(sender)
-        } else if msg_body.starts_with("send") {
-            let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
-            match msg_body {
-                Ok(msg_body) => {
-                    send(sender, msg_body.as_str())
-                },
-                Err(_) => {
-                    let error_message = "Please use <amount> <username>.\n \
-                                              If usernames are ambiguous write them out in full. I.e. like @username:example-server.com.";
-                    let result = send_reply_to_event_in_room(&room,
-                                                                               &event,
-                                                                          error_message).await;
-                    match result {
-                        Err(error) => {
+        match parse_command(&msg_body)? {
+            Some(Command::Tip { amount, memo, .. }) => {
+                let replyee = extracted_msg_body
+                    .formatted_msg_body
+                    .as_deref()
+                    .and_then(|body| extract_user_from_formatted_msg_body(body));
+                let replyee = replyee.ok_or_else(|| {
+                    log::warn!("Could not determine reply target from formatted body");
+                    SimpleError::new("No reply target")
+                })?;
+                Ok(Command::Tip {
+                    sender: sender.to_string(),
+                    replyee: replyee.to_string(),
+                    amount,
+                    memo,
+                })
+            }
+            Some(Command::Balance { .. }) => balance(sender),
+            Some(Command::Transactions { .. }) => transactions(sender),
+            Some(Command::LinkToZeusWallet { .. }) => link_to_zeus_wallet(sender),
+            Some(Command::Send { .. }) => {
+                let msg_body = preprocess_send_message(&business_logic_contex, &extracted_msg_body, room).await;
+                match msg_body {
+                    Ok(msg_body) => send(sender, msg_body.as_str()),
+                    Err(_) => {
+                          let error_message = "Please use <amount> <username>.\n                                If usernames are ambiguous write them out in full. I.e. like @username:example-server.com.";
+                        if let Err(error) = send_reply_to_event_in_room(&room, &event, error_message).await {
                             log::warn!("Could not send reply message due to {:?}..", error);
                         }
-                        _ => { /* ignore */}
+                        Ok(Command::None)
                     }
-                    Ok(Command::None)
                 }
             }
-        } else if msg_body.starts_with("invoice") {
-            invoice(sender, msg_body.as_str())
-        } else if msg_body.starts_with("pay") {
-            pay(sender, msg_body.as_str())
-        } else if msg_body.starts_with("help-boltz-swaps") {
-            help_boltz_swaps(!is_direct, is_encrypted)
-        } else if msg_body.starts_with("help") {
-            help(!is_direct, is_encrypted)
-        } else if msg_body.starts_with("donate") {
-            donate(sender, msg_body.as_str())
-        } else if msg_body.starts_with("party") {
-            party()
-        } else if msg_body.starts_with("version") {
-            version()
-        } else if msg_body.starts_with("generate-ln-address") {
-            generate_ln_address(sender, msg_body.as_str())
-        } else if msg_body.starts_with("show-ln-addresses") {
-            show_ln_addresses(sender)
-        } else if msg_body.starts_with("fiat-to-sats") {
-            fiat_to_sats(sender, msg_body.as_str())
-        } else if msg_body.starts_with("sats-to-fiat") {
-            sats_to_fiat(sender, msg_body.as_str())
-        } else if msg_body.starts_with("boltz-onchain-to-offchain") {
-            boltz_onchain_to_offchain(sender, msg_body.as_str())
-        } else if msg_body.starts_with("boltz-offchain-to-onchain") {
-            boltz_offchain_to_onchain(sender, msg_body.as_str())
-        } else if msg_body.starts_with("refund") {
-            refund(sender, msg_body.as_str())
-        } else {
-            Ok(Command::None)
+            Some(Command::Invoice { .. }) => invoice(sender, msg_body.as_str()),
+            Some(Command::Pay { .. }) => pay(sender, msg_body.as_str()),
+            Some(Command::HelpBoltzSwaps { .. }) => help_boltz_swaps(!is_direct, is_encrypted),
+            Some(Command::Help { .. }) => help(!is_direct, is_encrypted),
+            Some(Command::Donate { amount, .. }) => Ok(Command::Donate {
+                sender: sender.to_string(),
+                amount,
+            }),
+            Some(Command::Party { .. }) => party(),
+            Some(Command::Version { .. }) => version(),
+            Some(Command::GenerateLnAddress { .. }) => generate_ln_address(sender, msg_body.as_str()),
+            Some(Command::ShowLnAddresses { .. }) => show_ln_addresses(sender),
+            Some(Command::FiatToSats { .. }) => fiat_to_sats(sender, msg_body.as_str()),
+            Some(Command::SatsToFiat { .. }) => sats_to_fiat(sender, msg_body.as_str()),
+            Some(Command::BoltzOnchainToOffchain { .. }) => boltz_onchain_to_offchain(sender, msg_body.as_str()),
+            Some(Command::BoltzOffchainToOnchain { .. }) => boltz_offchain_to_onchain(sender, msg_body.as_str()),
+            Some(Command::Refund { .. }) => refund(sender, msg_body.as_str()),
+            _ => Ok(Command::None),
         }
     }
 
-    // TODO(AE): Terrible code refactor
     async fn find_user_in_room(partial_user_id: &str,
-                               room: &Room) -> Result<Option<OwnedUserId>, SimpleError> {
+                               room: &Room,
+                               ctx: &BusinessLogicContext) -> Result<Option<OwnedUserId>, SimpleError> {
 
         log::info!("Trying to find {:?} in room ..", partial_user_id);
-        if partial_user_id.is_empty() { return Ok(None) }
-
-        let split :Vec<&str> = partial_user_id.split(':').collect();
-        if split.len() > 1 { return Ok(None) }
-
-        let partial_user_id = split[0];
-
-        if partial_user_id.is_empty()
-            || ((partial_user_id.chars().next().unwrap() == '@') && partial_user_id.len() == 1) {
-            return Ok(None)
+        if partial_user_id.is_empty() {
+            return Ok(None);
         }
 
-        let partial_user_id: String = if partial_user_id.chars().next().unwrap() == '@' { partial_user_id[1..].to_string() }
-                                      else { partial_user_id.to_string() };
+        // Try parsing as a full user ID first
+        if let Ok(user_id) = UserId::parse(partial_user_id) {
+            return Ok(room
+                .get_member(&user_id)
+                .await
+                .map_err(|e| SimpleError::new(format!("Could not get member: {:?}", e)))?
+                .map(|_| user_id.to_owned()));
+        }
+
+        let localpart = partial_user_id
+            .strip_prefix('@')
+            .unwrap_or(partial_user_id);
+
+        let members: Vec<OwnedUserId> = ctx.get_or_fetch_member_ids(room).await?;
 
         let mut matched_user_id: Option<OwnedUserId> = None;
 
-        let members: Vec<RoomMember> = try_with!(room.members_no_sync(RoomMemberships::JOIN).await,
-                                                 "Could not get room members");
-
-        for member in members {
-            log::info!("comparing {:?} & {:?} vs {:?}",
-                       member.user_id(),
-                       member.user_id().localpart(),
-                       partial_user_id);
-            if member.user_id().localpart() == partial_user_id {
+        for user_id in members {
+            log::info!("comparing {:?} vs {:?}", user_id.localpart(), localpart);
+            if user_id.localpart() == localpart {
                 if matched_user_id.is_none() {
-                    matched_user_id = Some(member.user_id().to_owned());
+                    matched_user_id = Some(user_id.to_owned());
                 } else {
                     log::info!("Found multiple possible matching user names, not returning anything");
-                    return Ok(None)
+                    return Ok(None);
                 }
             }
         }
@@ -245,28 +266,8 @@ pub mod matrix_bot {
         Ok(matched_user_id)
     }
 
-    fn try_to_parse_into_full_username(username: &str) -> Option<OwnedUserId> {
-        log::info!("Trying to parse {:?} into a full username ..", username);
-        let split: Vec<&str> = username.split(':').collect();
-        if split.len() != 2 {
-            return  None
-        }
-
-        let server_name = <&ServerName>::try_from(split[1]);
-        if server_name.is_err() {
-            return None
-        }
-        let server_name = server_name.unwrap();
-
-        let user_id = UserId::parse_with_server_name(username, server_name);
-
-        match user_id {
-            Ok(user_id) => { Some(user_id) }
-            _ => None
-        }
-    }
-
-    async fn preprocess_send_message(extracted_msg_body: &ExtractedMessageBody,
+    async fn preprocess_send_message(ctx: &BusinessLogicContext,
+                                     extracted_msg_body: &ExtractedMessageBody,
                                      room: &Room) -> Result<String, SimpleError> {
 
         log::info!("Preprocessing {:?} for send ..", extracted_msg_body);
@@ -282,12 +283,14 @@ pub mod matrix_bot {
             return Ok(raw_message)
         }
 
-        let mut target_id: Option<OwnedUserId> = try_to_parse_into_full_username(split_message[2]);
-        target_id = if target_id.is_some() { target_id }
-                    else {
-                        try_with!(find_user_in_room(split_message[2], room).await,
-                                      "Error while trying to find user")
-                    };
+        let mut target_id: Option<OwnedUserId> =
+            UserId::parse(split_message[2]).ok().map(|u| u.to_owned());
+        target_id = if target_id.is_some() {
+            target_id
+        } else {
+            try_with!(find_user_in_room(split_message[2], room, ctx).await,
+                      "Error while trying to find user")
+        };
         target_id = if target_id.is_some() { target_id }
                     else {
                         if extracted_msg_body.formatted_msg_body.is_none() {
@@ -409,6 +412,19 @@ pub mod matrix_bot {
 
     }
 
+    pub(crate) async fn poll_status<F, Fut>(interval: Duration, mut action: F) -> Option<String>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Option<String>>,
+    {
+        loop {
+            if let Some(res) = action().await {
+                return Some(res);
+            }
+            sleep(interval).await;
+        }
+    }
+
     pub struct MatrixBot {
         client: Client,
         business_logic_contex: BusinessLogicContext,
@@ -454,7 +470,19 @@ pub mod matrix_bot {
                 move |room_member: StrippedRoomMemberEvent, client: Client, room: Room| {
                     let business_logic_context = business_logic_context.clone();
                     async move {
-                        auto_join(room_member, client, room, business_logic_context).await;
+                        auto_join(room_member, client, room, business_logic_context.clone()).await;
+                    }
+                }
+            });
+
+            self.client.add_event_handler({
+                let business_logic_context = business_logic_context.clone();
+                move |_: OriginalSyncRoomMemberEvent, room: Room| {
+                    let business_logic_context = business_logic_context.clone();
+                    async move {
+                        if let Err(e) = business_logic_context.update_room_members(&room).await {
+                            log::warn!("Failed to update member cache: {:?}", e);
+                        }
                     }
                 }
             });
@@ -495,37 +523,35 @@ pub mod matrix_bot {
                         }
 
                         let plain_message_body = extracted_msg_body.msg_body.clone().unwrap();
+                        let mut to_process = extracted_msg_body.clone();
 
-                        if plain_message_body.starts_with(bot_name.as_str()) {
-                            let result = send_reply_to_event_in_room(&room,
-                                                                     &event,
-                                                                     "Thanks for you message. I am but a simple bot. I will join any room you invite me to. Please run !help to see what I can do.").await;
-                            match result {
-                                Err(error) => {
+                        if let Some(rest) = strip_bot_prefix(&plain_message_body, bot_name.as_str()) {
+                            if rest.is_empty() {
+                                let result = send_reply_to_event_in_room(&room,
+                                    &event,
+                                    "Thanks for you message. I am but a simple bot. I will join any room you invite me to. Please run !help to see what I can do.").await;
+                                if let Err(error) = result {
                                     log::warn!("Could not send reply message due to {:?}..", error);
                                 }
-                                _ => { /* ignore */}
+                                return;
+                            } else {
+                                to_process.msg_body = Some(rest.to_string());
                             }
-                            return
                         }
 
                         let command = extract_command(&room,
                                                       sender,
                                                       &event,
-                                                      &extracted_msg_body).await;
+                                                      &to_process,
+                                                      &business_logic_contex).await;
 
 
                         match command {
                             Err(error) => {
                                 log::warn!("Error occurred while extracting command {:?}..", error);
-                                let result = send_reply_to_event_in_room(&room,
-                                                                         &event,
-                                                                         "Unknown command, please use `help` for list of commands").await;
-                                match result {
-                                    Err(error) => {
-                                        log::warn!("Could not even send error message due to {:?}..", error);
-                                    }
-                                    _ => { /* ignore */}
+                                let reply = error.to_string();
+                                if let Err(err) = send_reply_to_event_in_room(&room, &event, reply.as_str()).await {
+                                    log::warn!("Could not even send error message due to {:?}..", err);
                                 }
                                 return
                             }
@@ -637,26 +663,25 @@ pub mod matrix_bot {
                             let room_clone = room.clone();
                             let ln_client = business_logic_contex.lnbits_client.clone();
                             tokio::spawn(async move {
-                                use tokio::time::{sleep, Duration};
-                                loop {
-                                    let status = ln_client.invoice_status(&in_key, &payment_hash).await;
-                                    match status {
-                                        Ok(true) => {
-                                            let content = RoomMessageEventContent::text_plain("Invoice has been paid.");
-                                            if let Err(e) = room_clone.send(content).await {
-                                                log::warn!("Could not send invoice paid notification: {:?}", e);
-                                            }
-                                            break;
-                                        }
-                                        Ok(false) => {}
+                                let msg = poll_status(Duration::from_secs(10), || async {
+                                    match ln_client.invoice_status(&in_key, &payment_hash).await {
+                                        Ok(true) => Some("Invoice has been paid.".to_string()),
+                                        Ok(false) => None,
                                         Err(e) => {
                                             log::warn!("Error checking invoice status: {:?}", e);
-                                            break;
+                                            Some(String::new())
                                         }
                                     }
-                                sleep(Duration::from_secs(10)).await;
-                            }
-                        });
+                                }).await;
+                                if let Some(text) = msg {
+                                    if !text.is_empty() {
+                                        let content = RoomMessageEventContent::text_plain(text);
+                                        if let Err(e) = room_clone.send(content).await {
+                                            log::warn!("Could not send invoice paid notification: {:?}", e);
+                                        }
+                                    }
+                                }
+                            });
                         }
 
                         if command_reply.swap_id.is_some() && command_reply.admin_key.is_some() {
@@ -665,25 +690,27 @@ pub mod matrix_bot {
                             let room_clone = room.clone();
                             let ln_client = business_logic_contex.lnbits_client.clone();
                             tokio::spawn(async move {
-                                use tokio::time::{sleep, Duration};
-                                loop {
-                                    let status = ln_client.boltz_status(&admin_key, &swap_id).await;
-                                    match status {
+                                let msg = poll_status(Duration::from_secs(60), || async {
+                                    match ln_client.boltz_status(&admin_key, &swap_id).await {
                                         Ok(json) => {
                                             let state = json.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
                                             if state != "pending" && state != "refunding" {
-                                                let text = format!("Swap {} status: {}", swap_id, state);
-                                                let content = RoomMessageEventContent::text_plain(text);
-                                                let _ = room_clone.send(content).await;
-                                                break;
+                                                Some(format!("Swap {} status: {}", swap_id, state))
+                                            } else {
+                                                None
                                             }
                                         }
                                         Err(e) => {
                                             log::warn!("Error checking swap status: {:?}", e);
-                                            break;
+                                            Some(String::new())
                                         }
                                     }
-                                    sleep(Duration::from_secs(60)).await;
+                                }).await;
+                                if let Some(text) = msg {
+                                    if !text.is_empty() {
+                                        let content = RoomMessageEventContent::text_plain(text);
+                                        let _ = room_clone.send(content).await;
+                                    }
                                 }
                             });
                         }
@@ -694,12 +721,12 @@ pub mod matrix_bot {
         }
 
         fn bot_name(&self) -> String {
-            let parts: Vec<&str> = self.config.matrix_server.split(':').collect();
-            if parts.is_empty() || parts[0].len() < 1 {
-                log::warn!("Could not parse my own name from config, please check it");
-                "".to_string()
-            } else {
-                parts[0][1..].to_owned()
+            match UserId::parse(self.config.matrix_username.as_str()) {
+                Ok(user_id) => user_id.localpart().to_owned(),
+                Err(e) => {
+                    log::warn!("Could not parse my own name from config: {:?}", e);
+                    "".to_string()
+                }
             }
         }
 
@@ -731,46 +758,161 @@ pub mod matrix_bot {
 
 #[cfg(test)]
 mod tests {
-    use super::commands::{Command, help, help_boltz_swaps};
+    use super::matrix_bot::parse_command;
+    use super::commands::Command;
+    use tokio::time::Duration;
 
-    fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
-        let mut msg = message.trim().to_lowercase();
-        if !is_direct && !msg.starts_with('!') {
-            return Command::None;
-        }
-        if msg.starts_with('!') {
-            msg = msg[1..].to_string();
-        }
-        if msg.starts_with("help-boltz-swaps") {
-            help_boltz_swaps(!is_direct, is_encrypted).unwrap()
-        } else if msg.starts_with("help") {
-            help(!is_direct, is_encrypted).unwrap()
-        } else {
-            Command::None
+    #[test]
+    fn parse_tip_command() {
+        let cmd = parse_command("!tip 100 thanks").unwrap();
+        match cmd {
+            Some(Command::Tip { amount, .. }) => assert_eq!(amount, 100),
+            _ => panic!("expected tip"),
         }
     }
 
     #[test]
-    fn dm_help_without_prefix() {
-        let cmd = parse_help(true, true, "help");
-        match cmd { Command::Help { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help") }
+    fn parse_tip_missing_argument() {
+        let err = parse_command("!tip").unwrap_err();
+        assert!(err.to_string().contains("Expected"));
     }
 
     #[test]
-    fn group_help_requires_prefix() {
-        let cmd = parse_help(false, false, "help");
-        assert!(cmd.is_none());
+    fn parse_send_missing_argument() {
+        let err = parse_command("!send 50").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !send <amount> <receiver> [memo]"
+        );
     }
 
     #[test]
-    fn group_help_with_prefix() {
-        let cmd = parse_help(false, true, "!help");
-        match cmd { Command::Help { with_prefix, include_note } => { assert!(with_prefix); assert!(include_note); }, _ => panic!("expected help") }
+    fn parse_invoice_missing_argument() {
+        let err = parse_command("!invoice").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 1 argument: !invoice <amount> [memo]"
+        );
     }
 
     #[test]
-    fn help_boltz_swaps_parsing() {
-        let cmd = parse_help(true, true, "help-boltz-swaps");
-        match cmd { Command::HelpBoltzSwaps { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help-boltz-swaps") }
+    fn parse_pay_missing_argument() {
+        let err = parse_command("!pay").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !pay <invoice>");
+    }
+
+    #[test]
+    fn parse_donate_missing_argument() {
+        let err = parse_command("!donate").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !donate <amount>");
+    }
+
+    #[test]
+    fn parse_generate_ln_address_missing_argument() {
+        let err = parse_command("!generate-ln-address").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 1 argument: !generate-ln-address <username>"
+        );
+    }
+
+    #[test]
+    fn parse_fiat_to_sats_missing_argument() {
+        let err = parse_command("!fiat-to-sats 10").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !fiat-to-sats <amount> <currency>"
+        );
+    }
+
+    #[test]
+    fn parse_sats_to_fiat_missing_argument() {
+        let err = parse_command("!sats-to-fiat 10").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !sats-to-fiat <amount> <currency>"
+        );
+    }
+
+    #[test]
+    fn parse_refund_missing_argument() {
+        let err = parse_command("!refund").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !refund <swap_id>");
+    }
+
+    #[test]
+    fn parse_boltz_onchain_to_offchain_missing_argument() {
+        let err = parse_command("!boltz-onchain-to-offchain 100").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !boltz-onchain-to-offchain <amount> <refund-address>"
+        );
+    }
+
+    #[test]
+    fn parse_boltz_offchain_to_onchain_missing_argument() {
+        let err = parse_command("!boltz-offchain-to-onchain 100").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !boltz-offchain-to-onchain <amount> <onchain-address>"
+        );
+    }
+
+    #[test]
+    fn parse_send_command() {
+        let cmd = parse_command("!send 50 @bob:example.org").unwrap();
+        match cmd {
+            Some(Command::Send { amount, ref recipient, .. }) => {
+                assert_eq!(amount, 50);
+                assert_eq!(recipient, "@bob:example.org");
+            }
+            _ => panic!("expected send"),
+        }
+    }
+
+    #[test]
+    fn parse_balance_command() {
+        let cmd = parse_command("!balance").unwrap();
+        assert!(matches!(cmd, Some(Command::Balance { .. })));
+    }
+
+    #[test]
+    fn parse_unknown_command() {
+        assert!(parse_command("!foobar").unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_empty_message() {
+        assert!(parse_command("").unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_whitespace_only() {
+        assert!(parse_command("   ").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_status_completes() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        let counter = Arc::new(Mutex::new(0));
+        let c = counter.clone();
+        let result = super::matrix_bot::poll_status(Duration::from_millis(1), move || {
+            let c = c.clone();
+            async move {
+                let mut num = c.lock().await;
+                *num += 1;
+                if *num >= 3 {
+                    Some("done".to_string())
+                } else {
+                    None
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.as_deref(), Some("done"));
+        assert_eq!(*counter.lock().await, 3);
     }
 }
