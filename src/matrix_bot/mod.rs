@@ -778,6 +778,69 @@ mod tests {
     }
 
     #[test]
+    fn parse_send_missing_argument() {
+        let err = parse_command("!send 50").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !send <amount> <receiver> [memo]"
+        );
+    }
+
+    #[test]
+    fn parse_invoice_missing_argument() {
+        let err = parse_command("!invoice").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 1 argument: !invoice <amount> [memo]"
+        );
+    }
+
+    #[test]
+    fn parse_pay_missing_argument() {
+        let err = parse_command("!pay").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !pay <invoice>");
+    }
+
+    #[test]
+    fn parse_donate_missing_argument() {
+        let err = parse_command("!donate").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !donate <amount>");
+    }
+
+    #[test]
+    fn parse_generate_ln_address_missing_argument() {
+        let err = parse_command("!generate-ln-address").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 1 argument: !generate-ln-address <username>"
+        );
+    }
+
+    #[test]
+    fn parse_fiat_to_sats_missing_argument() {
+        let err = parse_command("!fiat-to-sats 10").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !fiat-to-sats <amount> <currency>"
+        );
+    }
+
+    #[test]
+    fn parse_sats_to_fiat_missing_argument() {
+        let err = parse_command("!sats-to-fiat 10").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Expected 2 arguments: !sats-to-fiat <amount> <currency>"
+        );
+    }
+
+    #[test]
+    fn parse_refund_missing_argument() {
+        let err = parse_command("!refund").unwrap_err();
+        assert_eq!(err.to_string(), "Expected 1 argument: !refund <swap_id>");
+    }
+
+    #[test]
     fn parse_boltz_onchain_to_offchain_missing_argument() {
         let err = parse_command("!boltz-onchain-to-offchain 100").unwrap_err();
         assert_eq!(
