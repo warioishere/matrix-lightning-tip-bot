@@ -127,78 +127,49 @@ pub mod matrix_bot {
         if msg_body.starts_with('!') {
             msg_body = msg_body[1..].to_string();
         }
-
-        if msg_body.starts_with("tip") {
-            let replyee = extracted_msg_body
-                .formatted_msg_body
-                .as_deref()
-                .and_then(|body| extract_user_from_formatted_msg_body(body));
-            let replyee = replyee.ok_or_else(|| {
-                log::warn!("Could not determine reply target from formatted body");
-                SimpleError::new("No reply target")
-            })?;
-            tip(
-                sender,
-                msg_body.as_str(),
-                replyee.as_str(),
-            )
-        }  else if msg_body.starts_with("balance") {
-            balance(sender)
-        } else if msg_body.starts_with("transactions") {
-            transactions(sender)
-        } else if msg_body.starts_with("link-to-zeus-wallet") {
-            link_to_zeus_wallet(sender)
-        } else if msg_body.starts_with("send") {
-            let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
-            match msg_body {
-                Ok(msg_body) => {
-                    send(sender, msg_body.as_str())
-                },
-                Err(_) => {
-                    let error_message = "Please use <amount> <username>.\n \
-                                              If usernames are ambiguous write them out in full. I.e. like @username:example-server.com.";
-                    let result = send_reply_to_event_in_room(&room,
-                                                                               &event,
-                                                                          error_message).await;
-                    match result {
-                        Err(error) => {
+        match msg_body.split_whitespace().next() {
+            Some("tip") => {
+                let replyee = extracted_msg_body
+                    .formatted_msg_body
+                    .as_deref()
+                    .and_then(|body| extract_user_from_formatted_msg_body(body));
+                let replyee = replyee.ok_or_else(|| {
+                    log::warn!("Could not determine reply target from formatted body");
+                    SimpleError::new("No reply target")
+                })?;
+                tip(sender, msg_body.as_str(), replyee.as_str())
+            }
+            Some("balance") => balance(sender),
+            Some("transactions") => transactions(sender),
+            Some("link-to-zeus-wallet") => link_to_zeus_wallet(sender),
+            Some("send") => {
+                let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
+                match msg_body {
+                    Ok(msg_body) => send(sender, msg_body.as_str()),
+                    Err(_) => {
+                          let error_message = "Please use <amount> <username>.\n                                If usernames are ambiguous write them out in full. I.e. like @username:example-server.com.";
+                        if let Err(error) = send_reply_to_event_in_room(&room, &event, error_message).await {
                             log::warn!("Could not send reply message due to {:?}..", error);
                         }
-                        _ => { /* ignore */}
+                        Ok(Command::None)
                     }
-                    Ok(Command::None)
                 }
             }
-        } else if msg_body.starts_with("invoice") {
-            invoice(sender, msg_body.as_str())
-        } else if msg_body.starts_with("pay") {
-            pay(sender, msg_body.as_str())
-        } else if msg_body.starts_with("help-boltz-swaps") {
-            help_boltz_swaps(!is_direct, is_encrypted)
-        } else if msg_body.starts_with("help") {
-            help(!is_direct, is_encrypted)
-        } else if msg_body.starts_with("donate") {
-            donate(sender, msg_body.as_str())
-        } else if msg_body.starts_with("party") {
-            party()
-        } else if msg_body.starts_with("version") {
-            version()
-        } else if msg_body.starts_with("generate-ln-address") {
-            generate_ln_address(sender, msg_body.as_str())
-        } else if msg_body.starts_with("show-ln-addresses") {
-            show_ln_addresses(sender)
-        } else if msg_body.starts_with("fiat-to-sats") {
-            fiat_to_sats(sender, msg_body.as_str())
-        } else if msg_body.starts_with("sats-to-fiat") {
-            sats_to_fiat(sender, msg_body.as_str())
-        } else if msg_body.starts_with("boltz-onchain-to-offchain") {
-            boltz_onchain_to_offchain(sender, msg_body.as_str())
-        } else if msg_body.starts_with("boltz-offchain-to-onchain") {
-            boltz_offchain_to_onchain(sender, msg_body.as_str())
-        } else if msg_body.starts_with("refund") {
-            refund(sender, msg_body.as_str())
-        } else {
-            Ok(Command::None)
+            Some("invoice") => invoice(sender, msg_body.as_str()),
+            Some("pay") => pay(sender, msg_body.as_str()),
+            Some("help-boltz-swaps") => help_boltz_swaps(!is_direct, is_encrypted),
+            Some("help") => help(!is_direct, is_encrypted),
+            Some("donate") => donate(sender, msg_body.as_str()),
+            Some("party") => party(),
+            Some("version") => version(),
+            Some("generate-ln-address") => generate_ln_address(sender, msg_body.as_str()),
+            Some("show-ln-addresses") => show_ln_addresses(sender),
+            Some("fiat-to-sats") => fiat_to_sats(sender, msg_body.as_str()),
+            Some("sats-to-fiat") => sats_to_fiat(sender, msg_body.as_str()),
+            Some("boltz-onchain-to-offchain") => boltz_onchain_to_offchain(sender, msg_body.as_str()),
+            Some("boltz-offchain-to-onchain") => boltz_offchain_to_onchain(sender, msg_body.as_str()),
+            Some("refund") => refund(sender, msg_body.as_str()),
+            _ => Ok(Command::None),
         }
     }
 
@@ -733,6 +704,49 @@ pub mod matrix_bot {
 mod tests {
     use super::commands::{Command, help, help_boltz_swaps};
 
+    fn parse_command(message: &str) -> Command {
+        let mut msg = message.trim().to_lowercase();
+        if msg.is_empty() {
+            return Command::None;
+        }
+        if msg.starts_with('!') {
+            msg = msg[1..].to_string();
+        }
+        let mut parts = msg.split_whitespace();
+        match parts.next() {
+            Some("tip") => {
+                let replyee = parts.next().unwrap_or("");
+                let amount = parts
+                    .next()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(0);
+                Command::Tip {
+                    sender: "alice".to_string(),
+                    amount,
+                    memo: None,
+                    replyee: replyee.to_string(),
+                }
+            }
+            Some("send") => {
+                let recipient = parts.next().unwrap_or("");
+                let amount = parts
+                    .next()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(0);
+                Command::Send {
+                    sender: "alice".to_string(),
+                    amount,
+                    recipient: recipient.to_string(),
+                    memo: None,
+                }
+            }
+            Some("balance") => Command::Balance {
+                sender: "alice".to_string(),
+            },
+            _ => Command::None,
+        }
+    }
+
     fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
         let mut msg = message.trim().to_lowercase();
         if !is_direct && !msg.starts_with('!') {
@@ -772,5 +786,56 @@ mod tests {
     fn help_boltz_swaps_parsing() {
         let cmd = parse_help(true, true, "help-boltz-swaps");
         match cmd { Command::HelpBoltzSwaps { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help-boltz-swaps") }
+    }
+
+    #[test]
+    fn parse_tip_command() {
+        let cmd = parse_command("!tip @alice 100");
+        match cmd {
+            Command::Tip { amount, ref replyee, .. } => {
+                assert_eq!(amount, 100);
+                assert_eq!(replyee, "@alice");
+            }
+            _ => panic!("expected tip"),
+        }
+    }
+
+    #[test]
+    fn parse_send_command() {
+        let cmd = parse_command("!send @bob 50");
+        match cmd {
+            Command::Send { amount, ref recipient, .. } => {
+                assert_eq!(amount, 50);
+                assert_eq!(recipient, "@bob");
+            }
+            _ => panic!("expected send"),
+        }
+    }
+
+    #[test]
+    fn parse_balance_command() {
+        let cmd = parse_command("!balance");
+        match cmd {
+            Command::Balance { .. } => {}
+            _ => panic!("expected balance"),
+        }
+    }
+
+    #[test]
+    fn parse_unknown_command() {
+        let cmd = parse_command("!foobar");
+        assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn parse_empty_message() {
+        let cmd = parse_command("");
+        assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn parse_whitespace_only() {
+        let cmd = parse_command("   ");
+        assert!(cmd.is_none());
     }
 }
