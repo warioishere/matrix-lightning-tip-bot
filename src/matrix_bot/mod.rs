@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn parse_tip_command() {
-        let cmd = parse_command("!tip 100").unwrap();
+        let cmd = parse_command("!tip 100 thanks").unwrap();
         match cmd {
             Some(Command::Tip { amount, .. }) => assert_eq!(amount, 100),
             _ => panic!("expected tip"),
