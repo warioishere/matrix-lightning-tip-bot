@@ -26,13 +26,13 @@ pub mod matrix_bot {
 
 
     #[derive(Debug)]
-    struct ExtractedMessageBody {
+    pub(crate) struct ExtractedMessageBody {
         msg_body: Option<String>,
         formatted_msg_body: Option<String>
     }
 
     impl ExtractedMessageBody {
-        fn new(msg_body: Option<String>,
+        pub(crate) fn new(msg_body: Option<String>,
                formatted_msg_body: Option<String>) -> ExtractedMessageBody {
             ExtractedMessageBody {
                 msg_body,
@@ -40,7 +40,7 @@ pub mod matrix_bot {
             }
         }
 
-        fn empty() ->  ExtractedMessageBody{
+        pub(crate) fn empty() ->  ExtractedMessageBody{
             ExtractedMessageBody::new(None, None)
         }
     }
@@ -111,7 +111,7 @@ pub mod matrix_bot {
         }
     }
 
-    async fn extract_command(room: &Room,
+    pub(crate) async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
                              extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
@@ -702,50 +702,13 @@ pub mod matrix_bot {
 
 #[cfg(test)]
 mod tests {
-    use super::commands::{Command, help, help_boltz_swaps};
+    use super::commands::{help, help_boltz_swaps, Command};
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk::ruma::{owned_room_id, MilliSecondsSinceUnixEpoch};
+    use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
+    use crate::matrix_bot::matrix_bot::ExtractedMessageBody;
+    use serde_json::{json, from_value as from_json_value};
 
-    fn parse_command(message: &str) -> Command {
-        let mut msg = message.trim().to_lowercase();
-        if msg.is_empty() {
-            return Command::None;
-        }
-        if msg.starts_with('!') {
-            msg = msg[1..].to_string();
-        }
-        let mut parts = msg.split_whitespace();
-        match parts.next() {
-            Some("tip") => {
-                let replyee = parts.next().unwrap_or("");
-                let amount = parts
-                    .next()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(0);
-                Command::Tip {
-                    sender: "alice".to_string(),
-                    amount,
-                    memo: None,
-                    replyee: replyee.to_string(),
-                }
-            }
-            Some("send") => {
-                let recipient = parts.next().unwrap_or("");
-                let amount = parts
-                    .next()
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(0);
-                Command::Send {
-                    sender: "alice".to_string(),
-                    amount,
-                    recipient: recipient.to_string(),
-                    memo: None,
-                }
-            }
-            Some("balance") => Command::Balance {
-                sender: "alice".to_string(),
-            },
-            _ => Command::None,
-        }
-    }
 
     fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
         let mut msg = message.trim().to_lowercase();
@@ -788,54 +751,175 @@ mod tests {
         match cmd { Command::HelpBoltzSwaps { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help-boltz-swaps") }
     }
 
-    #[test]
-    fn parse_tip_command() {
-        let cmd = parse_command("!tip @alice 100");
+    #[tokio::test]
+    async fn parse_tip_command() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "!tip 100";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$1",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let formatted = "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>";
+        let extracted = crate::matrix_bot::matrix_bot::ExtractedMessageBody::new(Some(message.to_string()), Some(formatted.to_string()));
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         match cmd {
             Command::Tip { amount, ref replyee, .. } => {
                 assert_eq!(amount, 100);
-                assert_eq!(replyee, "@alice");
+                assert_eq!(replyee, "@bob:example.org");
             }
             _ => panic!("expected tip"),
         }
     }
 
-    #[test]
-    fn parse_send_command() {
-        let cmd = parse_command("!send @bob 50");
+    #[tokio::test]
+    async fn parse_send_command() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "!send 50 @bob:example.org";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$2",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = crate::matrix_bot::matrix_bot::ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         match cmd {
             Command::Send { amount, ref recipient, .. } => {
                 assert_eq!(amount, 50);
-                assert_eq!(recipient, "@bob");
+                assert_eq!(recipient, "@bob:example.org");
             }
             _ => panic!("expected send"),
         }
     }
 
-    #[test]
-    fn parse_balance_command() {
-        let cmd = parse_command("!balance");
+    #[tokio::test]
+    async fn parse_balance_command() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "!balance";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$3",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         match cmd {
             Command::Balance { .. } => {}
             _ => panic!("expected balance"),
         }
     }
 
-    #[test]
-    fn parse_unknown_command() {
-        let cmd = parse_command("!foobar");
+    #[tokio::test]
+    async fn parse_unknown_command() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "!foobar";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$4",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         assert!(cmd.is_none());
     }
 
-    #[test]
-    fn parse_empty_message() {
-        let cmd = parse_command("");
+    #[tokio::test]
+    async fn parse_empty_message() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$5",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         assert!(cmd.is_none());
     }
 
-    #[test]
-    fn parse_whitespace_only() {
-        let cmd = parse_command("   ");
+    #[tokio::test]
+    async fn parse_whitespace_only() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+        let room = mock_server
+            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
+            .await;
+
+        let message = "   ";
+        let event_json = json!({
+            "content": { "body": message, "msgtype": "m.text" },
+            "event_id": "$6",
+            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+            "room_id": room.room_id(),
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+        });
+        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
+        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
+
+        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
+            .await
+            .unwrap();
         assert!(cmd.is_none());
     }
 }
