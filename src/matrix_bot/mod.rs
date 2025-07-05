@@ -4,10 +4,9 @@ mod utils;
 
 pub mod matrix_bot {
 
-    use matrix_sdk::{config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent, Client, Room, RoomMemberships, RoomState};
+    use matrix_sdk::{config::SyncSettings, ruma::events::room::member::{StrippedRoomMemberEvent, OriginalSyncRoomMemberEvent}, Client, Room, RoomState};
 
     use matrix_sdk::attachment::AttachmentConfig;
-    use matrix_sdk::room::RoomMember;
     use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
 
     use crate::{Config, DataLayer};
@@ -157,7 +156,8 @@ pub mod matrix_bot {
     pub(crate) async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
-                             extracted_msg_body: &ExtractedMessageBody) -> Result<Command, SimpleError> {
+                             extracted_msg_body: &ExtractedMessageBody,
+                             business_logic_contex: &BusinessLogicContext) -> Result<Command, SimpleError> {
         let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
         let mut msg_body = last_line(raw.as_str());
         let is_direct = room.is_direct().await.unwrap_or(false);
@@ -192,7 +192,7 @@ pub mod matrix_bot {
             Some(Command::Transactions { .. }) => transactions(sender),
             Some(Command::LinkToZeusWallet { .. }) => link_to_zeus_wallet(sender),
             Some(Command::Send { .. }) => {
-                let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
+                let msg_body = preprocess_send_message(&business_logic_contex, &extracted_msg_body, room).await;
                 match msg_body {
                     Ok(msg_body) => send(sender, msg_body.as_str()),
                     Err(_) => {
@@ -226,7 +226,8 @@ pub mod matrix_bot {
     }
 
     async fn find_user_in_room(partial_user_id: &str,
-                               room: &Room) -> Result<Option<OwnedUserId>, SimpleError> {
+                               room: &Room,
+                               ctx: &BusinessLogicContext) -> Result<Option<OwnedUserId>, SimpleError> {
 
         log::info!("Trying to find {:?} in room ..", partial_user_id);
         if partial_user_id.is_empty() {
@@ -246,18 +247,15 @@ pub mod matrix_bot {
             .strip_prefix('@')
             .unwrap_or(partial_user_id);
 
-        let members: Vec<RoomMember> = try_with!(
-            room.members_no_sync(RoomMemberships::JOIN).await,
-            "Could not get room members"
-        );
+        let members: Vec<OwnedUserId> = ctx.get_or_fetch_member_ids(room).await?;
 
         let mut matched_user_id: Option<OwnedUserId> = None;
 
-        for member in members {
-            log::info!("comparing {:?} vs {:?}", member.user_id().localpart(), localpart);
-            if member.user_id().localpart() == localpart {
+        for user_id in members {
+            log::info!("comparing {:?} vs {:?}", user_id.localpart(), localpart);
+            if user_id.localpart() == localpart {
                 if matched_user_id.is_none() {
-                    matched_user_id = Some(member.user_id().to_owned());
+                    matched_user_id = Some(user_id.to_owned());
                 } else {
                     log::info!("Found multiple possible matching user names, not returning anything");
                     return Ok(None);
@@ -268,7 +266,8 @@ pub mod matrix_bot {
         Ok(matched_user_id)
     }
 
-    async fn preprocess_send_message(extracted_msg_body: &ExtractedMessageBody,
+    async fn preprocess_send_message(ctx: &BusinessLogicContext,
+                                     extracted_msg_body: &ExtractedMessageBody,
                                      room: &Room) -> Result<String, SimpleError> {
 
         log::info!("Preprocessing {:?} for send ..", extracted_msg_body);
@@ -289,7 +288,7 @@ pub mod matrix_bot {
         target_id = if target_id.is_some() {
             target_id
         } else {
-            try_with!(find_user_in_room(split_message[2], room).await,
+            try_with!(find_user_in_room(split_message[2], room, ctx).await,
                       "Error while trying to find user")
         };
         target_id = if target_id.is_some() { target_id }
@@ -471,7 +470,19 @@ pub mod matrix_bot {
                 move |room_member: StrippedRoomMemberEvent, client: Client, room: Room| {
                     let business_logic_context = business_logic_context.clone();
                     async move {
-                        auto_join(room_member, client, room, business_logic_context).await;
+                        auto_join(room_member, client, room, business_logic_context.clone()).await;
+                    }
+                }
+            });
+
+            self.client.add_event_handler({
+                let business_logic_context = business_logic_context.clone();
+                move |_: OriginalSyncRoomMemberEvent, room: Room| {
+                    let business_logic_context = business_logic_context.clone();
+                    async move {
+                        if let Err(e) = business_logic_context.update_room_members(&room).await {
+                            log::warn!("Failed to update member cache: {:?}", e);
+                        }
                     }
                 }
             });
@@ -531,7 +542,8 @@ pub mod matrix_bot {
                         let command = extract_command(&room,
                                                       sender,
                                                       &event,
-                                                      &to_process).await;
+                                                      &to_process,
+                                                      &business_logic_contex).await;
 
 
                         match command {
