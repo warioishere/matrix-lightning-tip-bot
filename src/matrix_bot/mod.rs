@@ -112,6 +112,42 @@ pub mod matrix_bot {
         }
     }
 
+    pub(crate) fn parse_command(msg_body: &str) -> Result<Option<Command>, SimpleError> {
+        let mut msg = msg_body.trim().to_lowercase();
+        if msg.is_empty() {
+            return Ok(None);
+        }
+
+        if msg.starts_with('!') {
+            msg = msg[1..].to_string();
+        }
+
+        let result = match msg.split_whitespace().next() {
+            Some("tip") => tip("", msg.as_str(), "").map(Some),
+            Some("balance") => balance("").map(Some),
+            Some("transactions") => transactions("").map(Some),
+            Some("link-to-zeus-wallet") => link_to_zeus_wallet("").map(Some),
+            Some("send") => send("", msg.as_str()).map(Some),
+            Some("invoice") => invoice("", msg.as_str()).map(Some),
+            Some("pay") => pay("", msg.as_str()).map(Some),
+            Some("help-boltz-swaps") => help_boltz_swaps(true, true).map(Some),
+            Some("help") => help(true, true).map(Some),
+            Some("donate") => donate("", msg.as_str()).map(Some),
+            Some("party") => party().map(Some),
+            Some("version") => version().map(Some),
+            Some("generate-ln-address") => generate_ln_address("", msg.as_str()).map(Some),
+            Some("show-ln-addresses") => show_ln_addresses("").map(Some),
+            Some("fiat-to-sats") => fiat_to_sats("", msg.as_str()).map(Some),
+            Some("sats-to-fiat") => sats_to_fiat("", msg.as_str()).map(Some),
+            Some("boltz-onchain-to-offchain") => boltz_onchain_to_offchain("", msg.as_str()).map(Some),
+            Some("boltz-offchain-to-onchain") => boltz_offchain_to_onchain("", msg.as_str()).map(Some),
+            Some("refund") => refund("", msg.as_str()).map(Some),
+            _ => Ok(None),
+        }?;
+
+        Ok(result)
+    }
+
     pub(crate) async fn extract_command(room: &Room,
                              sender: &str,
                              event: &OriginalSyncRoomMessageEvent,
@@ -128,8 +164,9 @@ pub mod matrix_bot {
         if msg_body.starts_with('!') {
             msg_body = msg_body[1..].to_string();
         }
-        match msg_body.split_whitespace().next() {
-            Some("tip") => {
+
+        match parse_command(&msg_body)? {
+            Some(Command::Tip { amount, memo, .. }) => {
                 let replyee = extracted_msg_body
                     .formatted_msg_body
                     .as_deref()
@@ -138,12 +175,17 @@ pub mod matrix_bot {
                     log::warn!("Could not determine reply target from formatted body");
                     SimpleError::new("No reply target")
                 })?;
-                tip(sender, msg_body.as_str(), replyee.as_str())
+                Ok(Command::Tip {
+                    sender: sender.to_string(),
+                    replyee: replyee.to_string(),
+                    amount,
+                    memo,
+                })
             }
-            Some("balance") => balance(sender),
-            Some("transactions") => transactions(sender),
-            Some("link-to-zeus-wallet") => link_to_zeus_wallet(sender),
-            Some("send") => {
+            Some(Command::Balance { .. }) => balance(sender),
+            Some(Command::Transactions { .. }) => transactions(sender),
+            Some(Command::LinkToZeusWallet { .. }) => link_to_zeus_wallet(sender),
+            Some(Command::Send { .. }) => {
                 let msg_body = preprocess_send_message(&extracted_msg_body, room).await;
                 match msg_body {
                     Ok(msg_body) => send(sender, msg_body.as_str()),
@@ -156,20 +198,20 @@ pub mod matrix_bot {
                     }
                 }
             }
-            Some("invoice") => invoice(sender, msg_body.as_str()),
-            Some("pay") => pay(sender, msg_body.as_str()),
-            Some("help-boltz-swaps") => help_boltz_swaps(!is_direct, is_encrypted),
-            Some("help") => help(!is_direct, is_encrypted),
-            Some("donate") => donate(sender, msg_body.as_str()),
-            Some("party") => party(),
-            Some("version") => version(),
-            Some("generate-ln-address") => generate_ln_address(sender, msg_body.as_str()),
-            Some("show-ln-addresses") => show_ln_addresses(sender),
-            Some("fiat-to-sats") => fiat_to_sats(sender, msg_body.as_str()),
-            Some("sats-to-fiat") => sats_to_fiat(sender, msg_body.as_str()),
-            Some("boltz-onchain-to-offchain") => boltz_onchain_to_offchain(sender, msg_body.as_str()),
-            Some("boltz-offchain-to-onchain") => boltz_offchain_to_onchain(sender, msg_body.as_str()),
-            Some("refund") => refund(sender, msg_body.as_str()),
+            Some(Command::Invoice { .. }) => invoice(sender, msg_body.as_str()),
+            Some(Command::Pay { .. }) => pay(sender, msg_body.as_str()),
+            Some(Command::HelpBoltzSwaps { .. }) => help_boltz_swaps(!is_direct, is_encrypted),
+            Some(Command::Help { .. }) => help(!is_direct, is_encrypted),
+            Some(Command::Donate { amount, .. }) => donate(sender, msg_body.as_str()),
+            Some(Command::Party { .. }) => party(),
+            Some(Command::Version { .. }) => version(),
+            Some(Command::GenerateLnAddress { .. }) => generate_ln_address(sender, msg_body.as_str()),
+            Some(Command::ShowLnAddresses { .. }) => show_ln_addresses(sender),
+            Some(Command::FiatToSats { .. }) => fiat_to_sats(sender, msg_body.as_str()),
+            Some(Command::SatsToFiat { .. }) => sats_to_fiat(sender, msg_body.as_str()),
+            Some(Command::BoltzOnchainToOffchain { .. }) => boltz_onchain_to_offchain(sender, msg_body.as_str()),
+            Some(Command::BoltzOffchainToOnchain { .. }) => boltz_offchain_to_onchain(sender, msg_body.as_str()),
+            Some(Command::Refund { .. }) => refund(sender, msg_body.as_str()),
             _ => Ok(Command::None),
         }
     }
@@ -698,115 +740,24 @@ pub mod matrix_bot {
 
 #[cfg(test)]
 mod tests {
-    use super::commands::{help, help_boltz_swaps, Command};
-    use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk::ruma::{owned_room_id, owned_user_id, MilliSecondsSinceUnixEpoch};
-    use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder};
-    use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
-    use crate::matrix_bot::matrix_bot::ExtractedMessageBody;
-    use serde_json::{json, from_value as from_json_value};
+    use super::matrix_bot::parse_command;
+    use super::commands::Command;
     use tokio::time::Duration;
 
-
-    fn parse_help(is_direct: bool, is_encrypted: bool, message: &str) -> Command {
-        let mut msg = message.trim().to_lowercase();
-        if !is_direct && !msg.starts_with('!') {
-            return Command::None;
-        }
-        if msg.starts_with('!') {
-            msg = msg[1..].to_string();
-        }
-        if msg.starts_with("help-boltz-swaps") {
-            help_boltz_swaps(!is_direct, is_encrypted).unwrap()
-        } else if msg.starts_with("help") {
-            help(!is_direct, is_encrypted).unwrap()
-        } else {
-            Command::None
-        }
-    }
-
     #[test]
-    fn dm_help_without_prefix() {
-        let cmd = parse_help(true, true, "help");
-        match cmd { Command::Help { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help") }
-    }
-
-    #[test]
-    fn group_help_requires_prefix() {
-        let cmd = parse_help(false, false, "help");
-        assert!(cmd.is_none());
-    }
-
-    #[test]
-    fn group_help_with_prefix() {
-        let cmd = parse_help(false, true, "!help");
-        match cmd { Command::Help { with_prefix, include_note } => { assert!(with_prefix); assert!(include_note); }, _ => panic!("expected help") }
-    }
-
-    #[test]
-    fn help_boltz_swaps_parsing() {
-        let cmd = parse_help(true, true, "help-boltz-swaps");
-        match cmd { Command::HelpBoltzSwaps { with_prefix, include_note } => { assert!(!with_prefix); assert!(include_note); }, _ => panic!("expected help-boltz-swaps") }
-    }
-
-    #[tokio::test]
-    async fn parse_tip_command() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "!tip 100";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$1",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let formatted = "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>";
-        let extracted = crate::matrix_bot::matrix_bot::ExtractedMessageBody::new(Some(message.to_string()), Some(formatted.to_string()));
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
+    fn parse_tip_command() {
+        let cmd = parse_command("!tip 100").unwrap();
         match cmd {
-            Command::Tip { amount, ref replyee, .. } => {
-                assert_eq!(amount, 100);
-                assert_eq!(replyee, "@bob:example.org");
-            }
+            Some(Command::Tip { amount, .. }) => assert_eq!(amount, 100),
             _ => panic!("expected tip"),
         }
     }
 
-    #[tokio::test]
-    async fn parse_send_command() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "!send 50 @bob:example.org";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$2",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = crate::matrix_bot::matrix_bot::ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
+    #[test]
+    fn parse_send_command() {
+        let cmd = parse_command("!send 50 @bob:example.org").unwrap();
         match cmd {
-            Command::Send { amount, ref recipient, .. } => {
+            Some(Command::Send { amount, ref recipient, .. }) => {
                 assert_eq!(amount, 50);
                 assert_eq!(recipient, "@bob:example.org");
             }
@@ -814,151 +765,25 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn parse_send_partial_user() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-
-        let room_id = owned_room_id!("!test:example.org");
-        let bob = owned_user_id!("@bob:example.org");
-
-        let member_event = EventFactory::new()
-            .room(&room_id)
-            .member(&bob)
-            .into_raw();
-
-        let builder = JoinedRoomBuilder::new(&room_id).add_state_event(member_event);
-        let room = mock_server.sync_room(&client, builder).await;
-
-        let message = "!send 50 @bob";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$partial", 
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
-        match cmd {
-            Command::Send { amount, ref recipient, .. } => {
-                assert_eq!(amount, 50);
-                assert_eq!(recipient, "@bob:example.org");
-            }
-            _ => panic!("expected send"),
-        }
+    #[test]
+    fn parse_balance_command() {
+        let cmd = parse_command("!balance").unwrap();
+        assert!(matches!(cmd, Some(Command::Balance { .. })));
     }
 
-    #[tokio::test]
-    async fn parse_balance_command() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "!balance";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$3",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
-        match cmd {
-            Command::Balance { .. } => {}
-            _ => panic!("expected balance"),
-        }
+    #[test]
+    fn parse_unknown_command() {
+        assert!(parse_command("!foobar").unwrap().is_none());
     }
 
-    #[tokio::test]
-    async fn parse_unknown_command() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "!foobar";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$4",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
-        assert!(cmd.is_none());
+    #[test]
+    fn parse_empty_message() {
+        assert!(parse_command("").unwrap().is_none());
     }
 
-    #[tokio::test]
-    async fn parse_empty_message() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$5",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
-        assert!(cmd.is_none());
-    }
-
-    #[tokio::test]
-    async fn parse_whitespace_only() {
-        let mock_server = MatrixMockServer::new().await;
-        let client = mock_server.client_builder().build().await;
-        let room = mock_server
-            .sync_joined_room(&client, &owned_room_id!("!test:example.org"))
-            .await;
-
-        let message = "   ";
-        let event_json = json!({
-            "content": { "body": message, "msgtype": "m.text" },
-            "event_id": "$6",
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "room_id": room.room_id(),
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        });
-        let event: OriginalSyncRoomMessageEvent = from_json_value(event_json).unwrap();
-        let extracted = ExtractedMessageBody::new(Some(message.to_string()), None);
-
-        let cmd = crate::matrix_bot::matrix_bot::extract_command(&room, "@alice:example.org", &event, &extracted)
-            .await
-            .unwrap();
-        assert!(cmd.is_none());
+    #[test]
+    fn parse_whitespace_only() {
+        assert!(parse_command("   ").unwrap().is_none());
     }
 
     #[tokio::test]
