@@ -319,44 +319,27 @@ pub mod matrix_bot {
         Ok(preprocessed_message)
     }
 
-    fn extract_user_from_formatted_msg_body(formatted_msg_body: &str) -> Option<OwnedUserId> {
+    pub(super) fn extract_user_from_formatted_msg_body(formatted_msg_body: &str) -> Option<OwnedUserId> {
 
-        let dom = tl::parse(formatted_msg_body, tl::ParserOptions::default()).unwrap();
-        let mut img = dom.query_selector("a[href]").unwrap();
-        let img = img.next();
-        if img.is_none() {
-            return None
-        }
-
+        let dom = tl::parse(formatted_msg_body, tl::ParserOptions::default()).ok()?;
+        let mut links = dom.query_selector("a[href]")?;
         let parser = dom.parser();
-        let a = img.unwrap().get(parser);
-        if a.is_none() {
-            return None
-        }
+        let anchor = links.next()?.get(parser)?;
 
-        // We know this exists because of the above statements
-        let inner_text = a.unwrap()
-                                 .as_tag()
-                                 .unwrap()
-                                 .attributes()
-                                 .get("href")
-                                 .unwrap()
-                                 .unwrap()
-                                 .as_utf8_str()
-                                 .to_string();
+        let href = anchor
+            .as_tag()?
+            .attributes()
+            .get("href")
+            .and_then(|v| v)?;
 
-        let r: Vec<&str> = inner_text.split('@').collect();
-        if r.len() != 2 { return None }
+        let href_str = href.try_as_utf8_str()?;
 
-        let complete_id = ("@".to_owned() + r[1]).to_string();
+        let r: Vec<&str> = href_str.split('@').collect();
+        if r.len() != 2 { return None; }
 
-        let user_id = OwnedUserId::try_from(complete_id);
+        let complete_id = format!("@{}", r[1]);
 
-        if user_id.is_ok() {
-            Some(user_id.unwrap().to_owned())
-        } else {
-            None
-        }
+        OwnedUserId::try_from(complete_id).ok()
     }
 
     fn extract_body(event: &OriginalSyncRoomMessageEvent) -> ExtractedMessageBody {
@@ -761,6 +744,7 @@ mod tests {
     use super::matrix_bot::parse_command;
     use super::commands::Command;
     use tokio::time::Duration;
+    use matrix_sdk::ruma::OwnedUserId;
 
     #[test]
     fn parse_tip_command() {
@@ -914,5 +898,20 @@ mod tests {
 
         assert_eq!(result.as_deref(), Some("done"));
         assert_eq!(*counter.lock().await, 3);
+    }
+
+    #[test]
+    fn extract_user_from_valid_html() {
+        let html = "<a href=\"https://matrix.to/#/@alice:example.org\">@alice:example.org</a>";
+        let expected = OwnedUserId::try_from("@alice:example.org").unwrap();
+        let result = super::matrix_bot::extract_user_from_formatted_msg_body(html);
+        assert_eq!(result, Some(expected));
+    }
+
+    #[test]
+    fn extract_user_from_malformed_html() {
+        let html = "<p>@alice:example.org</p>"; // missing anchor tag
+        let result = super::matrix_bot::extract_user_from_formatted_msg_body(html);
+        assert!(result.is_none());
     }
 }
