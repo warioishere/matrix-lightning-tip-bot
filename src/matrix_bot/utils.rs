@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use lnurl::lightning_address::LightningAddress;
 use lnurl::lnurl::LnUrl;
+use pulldown_cmark::{html, Options, Parser, Event};
 
 pub fn parse_lnurl(input: &str) -> Option<LnUrl> {
     match LnUrl::from_str(input) {
@@ -13,56 +14,26 @@ pub fn parse_lnurl(input: &str) -> Option<LnUrl> {
 }
 
 pub fn markdown_to_html(input: &str) -> String {
-    let mut result = String::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\n' {
-            result.push_str("<br>");
-        } else if ch == '*' {
-            if chars.peek() == Some(&'*') {
-                chars.next();
-                result.push_str("<strong>");
-                while let Some(c) = chars.next() {
-                    if c == '*' && chars.peek() == Some(&'*') {
-                        chars.next();
-                        result.push_str("</strong>");
-                        break;
-                    } else {
-                        match c {
-                            '<' => result.push_str("&lt;"),
-                            '>' => result.push_str("&gt;"),
-                            _ => result.push(c),
-                        }
-                    }
-                }
-            } else {
-                match ch {
-                    '<' => result.push_str("&lt;"),
-                    '>' => result.push_str("&gt;"),
-                    _ => result.push(ch),
-                }
-            }
-        } else if ch == '`' {
-            result.push_str("<code>");
-            while let Some(c) = chars.next() {
-                if c == '`' {
-                    result.push_str("</code>");
-                    break;
-                } else {
-                    match c {
-                        '<' => result.push_str("&lt;"),
-                        '>' => result.push_str("&gt;"),
-                        _ => result.push(c),
-                    }
-                }
-            }
-        } else {
-            match ch {
-                '<' => result.push_str("&lt;"),
-                '>' => result.push_str("&gt;"),
-                _ => result.push(ch),
-            }
-        }
+    let parser = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH);
+    let parser = parser.map(|event| match event {
+        Event::SoftBreak => Event::HardBreak,
+        other => other,
+    });
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    html_output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::markdown_to_html;
+
+    #[test]
+    fn converts_basic_markdown() {
+        let input = "Line 1\n**bold** and `code`";
+        let html = markdown_to_html(input);
+        assert!(html.contains("<strong>bold</strong>"));
+        assert!(html.contains("<code>code</code>"));
+        assert!(html.contains("<br"));
     }
-    result
 }
