@@ -247,23 +247,9 @@ pub mod matrix_bot {
             .strip_prefix('@')
             .unwrap_or(partial_user_id);
 
-        let members: Vec<OwnedUserId> = ctx.get_or_fetch_member_ids(room).await?;
+        let members = ctx.get_or_fetch_member_ids(room).await?;
 
-        let mut matched_user_id: Option<OwnedUserId> = None;
-
-        for user_id in members {
-            log::info!("comparing {:?} vs {:?}", user_id.localpart(), localpart);
-            if user_id.localpart() == localpart {
-                if matched_user_id.is_none() {
-                    matched_user_id = Some(user_id.to_owned());
-                } else {
-                    log::info!("Found multiple possible matching user names, not returning anything");
-                    return Ok(None);
-                }
-            }
-        }
-
-        Ok(matched_user_id)
+        Ok(members.get(localpart).cloned())
     }
 
     async fn preprocess_send_message(ctx: &BusinessLogicContext,

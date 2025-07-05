@@ -65,7 +65,7 @@ pub struct BusinessLogicContext  {
     data_layer: DataLayer,
     config: Config,
     pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
-    member_cache: Arc<Mutex<HashMap<OwnedRoomId, Vec<OwnedUserId>>>>,
+    member_cache: Arc<Mutex<HashMap<OwnedRoomId, HashMap<String, OwnedUserId>>>>,
 }
 
 impl BusinessLogicContext {
@@ -96,28 +96,41 @@ impl BusinessLogicContext {
             room.members_no_sync(RoomMemberships::JOIN).await,
             "Could not get room members"
         );
-        let ids = members.into_iter().map(|m| m.user_id().to_owned()).collect();
+        let ids: HashMap<String, OwnedUserId> = members
+            .into_iter()
+            .map(|m| (m.user_id().localpart().to_string(), m.user_id().to_owned()))
+            .collect();
         let mut cache = self.member_cache.lock().await;
         cache.insert(room.room_id().to_owned(), ids);
         Ok(())
     }
 
-    pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<Vec<OwnedUserId>, SimpleError> {
+    pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<HashMap<String, OwnedUserId>, SimpleError> {
         if let Some(ids) = self.member_cache.lock().await.get(room.room_id()).cloned() {
             return Ok(ids);
         }
         self.update_room_members(room).await?;
-        Ok(self.member_cache.lock().await.get(room.room_id()).cloned().unwrap_or_default())
+        Ok(self
+            .member_cache
+            .lock()
+            .await
+            .get(room.room_id())
+            .cloned()
+            .unwrap_or_default())
     }
 
     #[cfg(test)]
     pub async fn insert_member_ids(&self, room_id: OwnedRoomId, ids: Vec<OwnedUserId>) {
+        let map: HashMap<String, OwnedUserId> = ids
+            .into_iter()
+            .map(|id| (id.localpart().to_string(), id))
+            .collect();
         let mut cache = self.member_cache.lock().await;
-        cache.insert(room_id, ids);
+        cache.insert(room_id, map);
     }
 
     #[cfg(test)]
-    pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<Vec<OwnedUserId>> {
+    pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<HashMap<String, OwnedUserId>> {
         let cache = self.member_cache.lock().await;
         cache.get(room_id).cloned()
     }
@@ -744,6 +757,7 @@ impl BusinessLogicContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn cache_roundtrip() {
@@ -763,8 +777,10 @@ mod tests {
         let user = OwnedUserId::try_from("@alice:example.org").unwrap();
 
         ctx.insert_member_ids(room_id.clone(), vec![user.clone()]).await;
-        let cached = ctx.get_cached_member_ids(&room_id).await;
-        assert_eq!(cached.unwrap(), vec![user]);
+        let cached = ctx.get_cached_member_ids(&room_id).await.unwrap();
+        let mut expected = HashMap::new();
+        expected.insert(user.localpart().to_string(), user);
+        assert_eq!(cached, expected);
     }
 
     #[tokio::test]
