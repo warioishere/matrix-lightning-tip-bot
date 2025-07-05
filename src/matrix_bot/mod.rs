@@ -98,8 +98,8 @@ pub mod matrix_bot {
         }
     }
 
-    fn last_line<'a>(msg_body: &str) -> String {
-        msg_body.split('\n').last().unwrap().to_string()
+    pub(super) fn last_line<'a>(msg_body: &str) -> String {
+        msg_body.split('\n').last().unwrap_or("").to_string()
     }
 
     fn sender_allowed(sender: &OwnedUserId, config: &Config) -> bool {
@@ -913,5 +913,11 @@ mod tests {
         let html = "<p>@alice:example.org</p>"; // missing anchor tag
         let result = super::matrix_bot::extract_user_from_formatted_msg_body(html);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn last_line_empty_body() {
+        let result = super::matrix_bot::last_line("");
+        assert_eq!(result, "");
     }
 }
