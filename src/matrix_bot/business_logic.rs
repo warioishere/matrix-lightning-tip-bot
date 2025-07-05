@@ -318,9 +318,9 @@ impl BusinessLogicContext {
         match parse_lnurl(recipient) {
             Some(lnurl) => {
                 let client = lnurl::Builder::default()
-                    .build_blocking().map_err(|e| SimpleError::from(e))?;
+                    .build_async().map_err(|e| SimpleError::from(e))?;
 
-                let res = client.make_request(&lnurl.url).map_err(|e| SimpleError::from(e))?;
+                let res = client.make_request(&lnurl.url).await.map_err(|e| SimpleError::from(e))?;
 
                 match res {
                     LnUrlResponse::LnUrlPayResponse(pay) => {
@@ -328,7 +328,7 @@ impl BusinessLogicContext {
                         let res = client.get_invoice(&pay, amount * 1_000, None, match memo {
                             Some(memo) => Some(memo.as_str()),
                             None => None,
-                        }).map_err(|e| SimpleError::from(e))?;
+                        }).await.map_err(|e| SimpleError::from(e))?;
 
                         try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, res.invoice()).await,
                             "Could not pay invoice");
