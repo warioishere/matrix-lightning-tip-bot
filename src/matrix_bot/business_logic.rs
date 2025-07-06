@@ -65,7 +65,7 @@ pub struct BusinessLogicContext  {
     data_layer: DataLayer,
     config: Config,
     pending_reverse_swaps: Arc<Mutex<HashMap<String, (u64, String)>>>,
-    member_cache: Arc<Mutex<HashMap<OwnedRoomId, Vec<OwnedUserId>>>>,
+    member_cache: Arc<Mutex<HashMap<OwnedRoomId, HashMap<String, OwnedUserId>>>>,
 }
 
 impl BusinessLogicContext {
@@ -96,28 +96,41 @@ impl BusinessLogicContext {
             room.members_no_sync(RoomMemberships::JOIN).await,
             "Could not get room members"
         );
-        let ids = members.into_iter().map(|m| m.user_id().to_owned()).collect();
+        let ids: HashMap<String, OwnedUserId> = members
+            .into_iter()
+            .map(|m| (m.user_id().localpart().to_string(), m.user_id().to_owned()))
+            .collect();
         let mut cache = self.member_cache.lock().await;
         cache.insert(room.room_id().to_owned(), ids);
         Ok(())
     }
 
-    pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<Vec<OwnedUserId>, SimpleError> {
+    pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<HashMap<String, OwnedUserId>, SimpleError> {
         if let Some(ids) = self.member_cache.lock().await.get(room.room_id()).cloned() {
             return Ok(ids);
         }
         self.update_room_members(room).await?;
-        Ok(self.member_cache.lock().await.get(room.room_id()).cloned().unwrap_or_default())
+        Ok(self
+            .member_cache
+            .lock()
+            .await
+            .get(room.room_id())
+            .cloned()
+            .unwrap_or_default())
     }
 
     #[cfg(test)]
     pub async fn insert_member_ids(&self, room_id: OwnedRoomId, ids: Vec<OwnedUserId>) {
+        let map: HashMap<String, OwnedUserId> = ids
+            .into_iter()
+            .map(|id| (id.localpart().to_string(), id))
+            .collect();
         let mut cache = self.member_cache.lock().await;
-        cache.insert(room_id, ids);
+        cache.insert(room_id, map);
     }
 
     #[cfg(test)]
-    pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<Vec<OwnedUserId>> {
+    pub async fn get_cached_member_ids(&self, room_id: &OwnedRoomId) -> Option<HashMap<String, OwnedUserId>> {
         let cache = self.member_cache.lock().await;
         cache.get(room_id).cloned()
     }
@@ -245,29 +258,32 @@ impl BusinessLogicContext {
     }
 
     async fn get_fiat_to_btc_rate(&self, currency: &str) -> Result<f64, SimpleError> {
-    let url = format!("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={}", currency.to_lowercase());
-    log::info!("Sending request to CoinGecko for currency: {}", currency);
+        let url = format!(
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={}",
+            currency.to_lowercase()
+        );
+        log::info!("Sending request to CoinGecko for currency: {}", currency);
 
-    let response = reqwest::get(&url).await;
-    if let Err(err) = &response {
-        log::error!("Error while sending request to CoinGecko: {}", err);
-        return Err(SimpleError::new(err.to_string()));
-    }
+        let json: serde_json::Value = reqwest::get(&url)
+            .await
+            .map_err(SimpleError::from)?
+            .json()
+            .await
+            .map_err(SimpleError::from)?;
 
-    let json = response.unwrap().json::<serde_json::Value>().await;
-    if let Err(err) = &json {
-        log::error!("Error while parsing response JSON: {}", err);
-        return Err(SimpleError::new(err.to_string()));
-    }
+        let rate = json
+            .get("bitcoin")
+            .and_then(|v| v.get(&currency.to_lowercase()))
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| SimpleError::new("Missing conversion rate"))?;
 
-    let rate = json.unwrap()["bitcoin"][currency.to_lowercase()].as_f64().unwrap_or(0.0);
-    if rate == 0.0 {
-        log::error!("Received invalid rate from CoinGecko for currency: {}", currency);
-        return Err(SimpleError::new("Invalid conversion rate"));
-    }
+        if rate == 0.0 {
+            log::error!("Received zero rate from CoinGecko for currency: {}", currency);
+            return Err(SimpleError::new("Invalid conversion rate"));
+        }
 
-    log::info!("Received conversion rate: {} for currency: {}", rate, currency);
-    Ok(rate)
+        log::info!("Received conversion rate: {} for currency: {}", rate, currency);
+        Ok(rate)
     }
 
     // Fiat in Sats umrechnen
@@ -314,13 +330,14 @@ impl BusinessLogicContext {
                              memo: &Option<String>) -> Result<CommandReply, SimpleError>  {
         log::info!("processing send command ..");
 
-    	// If it's an LNURL, pay to the external wallet, else handle it internally
-        match parse_lnurl(recipient) {
+        // If it's an LNURL, pay to the external wallet, else handle it internally
+        let parsed_lnurl = parse_lnurl(recipient);
+        match &parsed_lnurl {
             Some(lnurl) => {
                 let client = lnurl::Builder::default()
-                    .build_blocking().map_err(|e| SimpleError::from(e))?;
+                    .build_async().map_err(|e| SimpleError::from(e))?;
 
-                let res = client.make_request(&lnurl.url).map_err(|e| SimpleError::from(e))?;
+                let res = client.make_request(&lnurl.url).await.map_err(|e| SimpleError::from(e))?;
 
                 match res {
                     LnUrlResponse::LnUrlPayResponse(pay) => {
@@ -328,7 +345,7 @@ impl BusinessLogicContext {
                         let res = client.get_invoice(&pay, amount * 1_000, None, match memo {
                             Some(memo) => Some(memo.as_str()),
                             None => None,
-                        }).map_err(|e| SimpleError::from(e))?;
+                        }).await.map_err(|e| SimpleError::from(e))?;
 
                         try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, res.invoice()).await,
                             "Could not pay invoice");
@@ -361,7 +378,7 @@ impl BusinessLogicContext {
                                              recipient).as_str())
         };
 
-        if parse_lnurl(recipient).is_none() {
+        if parsed_lnurl.is_none() {
             let receiver_msg = if memo.is_some() {
                 format!("{} you received {} Sats from {} with memo {}", recipient, amount, sender, memo.clone().unwrap())
             } else {
@@ -699,12 +716,12 @@ impl BusinessLogicContext {
                                              bolt11_invoice: &str) -> Result<(), SimpleError> {
 
         let parsed_invoice: lightning_invoice::Bolt11Invoice =
-            str::parse::<lightning_invoice::Bolt11Invoice>(bolt11_invoice).unwrap();
+            str::parse::<lightning_invoice::Bolt11Invoice>(bolt11_invoice)
+                .map_err(|e| SimpleError::new(e.to_string()))?;
 
-        if parsed_invoice.amount_milli_satoshis().is_none() {
-            bail!( "Incorrect invoice")
-        }
-        let invoice_milli_satoshi_amount = parsed_invoice.amount_milli_satoshis().unwrap();
+        let invoice_milli_satoshi_amount = parsed_invoice
+            .amount_milli_satoshis()
+            .ok_or_else(|| SimpleError::new("Incorrect invoice"))?;
 
         log::info!("Got an amount for {:?} satoshis ..", invoice_milli_satoshi_amount / 1000);
 
@@ -743,6 +760,7 @@ impl BusinessLogicContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn cache_roundtrip() {
@@ -762,7 +780,35 @@ mod tests {
         let user = OwnedUserId::try_from("@alice:example.org").unwrap();
 
         ctx.insert_member_ids(room_id.clone(), vec![user.clone()]).await;
-        let cached = ctx.get_cached_member_ids(&room_id).await;
-        assert_eq!(cached.unwrap(), vec![user]);
+        let cached = ctx.get_cached_member_ids(&room_id).await.unwrap();
+        let mut expected = HashMap::new();
+        expected.insert(user.localpart().to_string(), user);
+        assert_eq!(cached, expected);
+    }
+
+    #[tokio::test]
+    async fn invalid_invoice_returns_error() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(
+            LNBitsClient::new(&config),
+            DataLayer::new(&config),
+            &config,
+        );
+
+        let result = ctx
+            .pay_bolt11_invoice_as_matrix_is("@alice:example.org", "invalid")
+            .await;
+
+        assert!(result.is_err());
     }
 }
