@@ -125,7 +125,7 @@ Contributors lightning address (me) = node-runner@btcpay.yourdevice.ch
 A big thanks the people over at LightningTipBot and @AE9999. This fork-project is in no way ment to replace or critique the great work they have been doing, merely to give more people access to the lightning network.
 
 # Scheduled TODOs
-- make this work as an registered AS (Application Service) on your matrix homeserver instead of using a matrix-user-account
+
 - add onchain to offchain and offchain to onchain boltz swap support so users can swap der sats (✅)
 - generate your own ln-address with the command !generate-ln-address (✅)
 - send info when created invoice has been paid (✅)
