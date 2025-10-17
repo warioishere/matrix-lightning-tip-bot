@@ -618,6 +618,30 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(lines.join("\n").as_str()))
     }
 
+    fn should_forward_donate_reply(reply: &CommandReply) -> bool {
+        reply
+            .text
+            .as_deref()
+            .map(BusinessLogicContext::is_insufficient_balance_text)
+            .unwrap_or(false)
+    }
+
+    fn handle_donate_send_result(
+        &self,
+        send_result: Result<CommandReply, SimpleError>,
+    ) -> Result<CommandReply, SimpleError> {
+        match send_result {
+            Ok(reply) => {
+                if BusinessLogicContext::should_forward_donate_reply(&reply) {
+                    return Ok(reply);
+                }
+
+                Ok(CommandReply::text_only("Thanks for the donation"))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {
         const DONATION_ADDRESS: &str = "node-runner@btcpay.yourdevice.ch";
 
@@ -626,10 +650,7 @@ impl BusinessLogicContext {
                                  DONATION_ADDRESS,
                                  amount,
                                  &Some(format!("a generouse donation from {:?}", sender))).await;
-        match result {
-            Ok(_) => Ok(CommandReply::text_only("Thanks for the donation")),
-            Err(error) => Err(error)
-        }
+        self.handle_donate_send_result(result)
 
     }
 
@@ -867,5 +888,32 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn donate_forwards_insufficient_balance_reply() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(
+            LNBitsClient::new(&config),
+            DataLayer::new(&config),
+            &config,
+        );
+
+        let result = ctx.handle_donate_send_result(Ok(CommandReply::text_only(
+            INSUFFICIENT_BALANCE_MESSAGE,
+        )));
+
+        let reply = result.expect("donation should forward insufficient balance reply");
+        assert_eq!(reply.text.as_deref(), Some(INSUFFICIENT_BALANCE_MESSAGE));
     }
 }
