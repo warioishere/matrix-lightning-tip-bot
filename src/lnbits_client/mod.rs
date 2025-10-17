@@ -129,9 +129,17 @@ pub mod lnbits_client {
         pub status: String
     }
 
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct DetailError {
+        pub detail: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub status: Option<String>,
+    }
+
     #[derive(Debug)]
     pub enum PayError {
         Api(Error),
+        Detail(DetailError),
         Transport(reqwest::Error),
         UnexpectedResponse(String),
     }
@@ -140,6 +148,7 @@ pub mod lnbits_client {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 PayError::Api(error) => write!(f, "LNbits error {}: {}", error.name, error.message),
+                PayError::Detail(error) => write!(f, "{}", error.detail),
                 PayError::Transport(err) => write!(f, "{}", err),
                 PayError::UnexpectedResponse(body) => {
                     write!(f, "Unexpected LNbits response: {}", body)
@@ -325,6 +334,10 @@ pub struct LNBitsClient {
                 return Err(PayError::Api(api_error));
             }
 
+            if let Ok(detail_error) = serde_json::from_str::<DetailError>(&body) {
+                return Err(PayError::Detail(detail_error));
+            }
+
             Err(PayError::UnexpectedResponse(body))
         }
 
@@ -503,6 +516,34 @@ pub struct LNBitsClient {
                 PayError::Api(api_error) => {
                     assert_eq!(api_error.name, "InsufficientBalance");
                     assert_eq!(api_error.message, "Not enough funds");
+                }
+                other => panic!("unexpected error variant: {:?}", other),
+            }
+        }
+
+        #[tokio::test]
+        async fn pay_handles_detail_errors() {
+            let server = MockServer::start_async().await;
+
+            let _mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/api/v1/payments");
+                then.status(402)
+                    .header("content-type", "application/json")
+                    .body(r#"{"detail":"Insufficient balance.","status":"failed"}"#);
+            });
+
+            let config = test_config(&server.base_url());
+            let client = LNBitsClient::new(&config);
+            let wallet = test_wallet();
+            let params = PaymentParams::new(true, "lnbc1testinvoice");
+
+            let err = client.pay(&wallet, &params).await.expect_err("expected error");
+
+            match err {
+                PayError::Detail(detail_error) => {
+                    assert_eq!(detail_error.detail, "Insufficient balance.");
+                    assert_eq!(detail_error.status.as_deref(), Some("failed"));
                 }
                 other => panic!("unexpected error variant: {:?}", other),
             }
