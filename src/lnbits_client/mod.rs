@@ -327,6 +327,52 @@ pub struct LNBitsClient {
             let body = response.text().await?;
 
             if status.is_success() {
+                if let Ok(detail_error) = serde_json::from_str::<DetailError>(&body) {
+                    if detail_error
+                        .status
+                        .as_deref()
+                        .map(|status| status.eq_ignore_ascii_case("failed"))
+                        .unwrap_or(false)
+                    {
+                        return Err(PayError::Detail(detail_error));
+                    }
+                }
+
+                if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body) {
+                    let status_value = json_body
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .map(|status| status.to_string());
+
+                    let indicates_failure = status_value
+                        .as_deref()
+                        .map(|status| status.eq_ignore_ascii_case("failed"))
+                        .unwrap_or(false)
+                        || json_body
+                            .get("success")
+                            .and_then(|value| value.as_bool())
+                            .map(|success| !success)
+                            .unwrap_or(false);
+
+                    if indicates_failure {
+                        if let Some(detail) = json_body
+                            .get("detail")
+                            .and_then(|value| value.as_str())
+                        {
+                            return Err(PayError::Detail(DetailError {
+                                detail: detail.to_string(),
+                                status: status_value,
+                            }));
+                        }
+
+                        if let Ok(api_error) = serde_json::from_value::<Error>(json_body) {
+                            return Err(PayError::Api(api_error));
+                        }
+
+                        return Err(PayError::UnexpectedResponse(body));
+                    }
+                }
+
                 return Ok(());
             }
 
@@ -531,6 +577,34 @@ pub struct LNBitsClient {
                 then.status(402)
                     .header("content-type", "application/json")
                     .body(r#"{"detail":"Insufficient balance.","status":"failed"}"#);
+            });
+
+            let config = test_config(&server.base_url());
+            let client = LNBitsClient::new(&config);
+            let wallet = test_wallet();
+            let params = PaymentParams::new(true, "lnbc1testinvoice");
+
+            let err = client.pay(&wallet, &params).await.expect_err("expected error");
+
+            match err {
+                PayError::Detail(detail_error) => {
+                    assert_eq!(detail_error.detail, "Insufficient balance.");
+                    assert_eq!(detail_error.status.as_deref(), Some("failed"));
+                }
+                other => panic!("unexpected error variant: {:?}", other),
+            }
+        }
+
+        #[tokio::test]
+        async fn pay_detects_failed_status_in_success_response() {
+            let server = MockServer::start_async().await;
+
+            let _mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/api/v1/payments");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(r#"{"status":"failed","detail":"Insufficient balance."}"#);
             });
 
             let config = test_config(&server.base_url());
