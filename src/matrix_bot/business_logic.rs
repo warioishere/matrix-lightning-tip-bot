@@ -6,7 +6,7 @@ use qrcode_generator::QrCodeEcc;
 use crate::{Config, DataLayer, LNBitsClient};
 use url::Url;
 use crate::data_layer::data_layer::{NewMatrixId2LNBitsId, NewLnAddress};
-use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, Wallet, WalletInfo, LnAddressRequest};
+use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, PayError, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
@@ -59,6 +59,8 @@ fn help_boltz_swaps_text(with_prefix: bool) -> String {
 
 pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
 
+const INSUFFICIENT_BALANCE_MESSAGE: &str = "Insufficient balance.";
+
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     pub lnbits_client: LNBitsClient,
@@ -69,6 +71,41 @@ pub struct BusinessLogicContext  {
 }
 
 impl BusinessLogicContext {
+
+    fn is_insufficient_balance_text(text: &str) -> bool {
+        let normalized = text.trim();
+        let normalized = normalized.trim_end_matches('.');
+        normalized.eq_ignore_ascii_case("insufficient balance")
+    }
+
+    fn payment_error_is_insufficient_balance(pay_error: &PayError) -> bool {
+        match pay_error {
+            PayError::Api(api_error) => {
+                BusinessLogicContext::is_insufficient_balance_text(api_error.message.as_str())
+                    || BusinessLogicContext::is_insufficient_balance_text(api_error.name.as_str())
+            }
+            PayError::Detail(detail_error) => {
+                BusinessLogicContext::is_insufficient_balance_text(detail_error.detail.as_str())
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_payment_result(&self,
+                             result: Result<(), SimpleError>,
+                             context: &str) -> Result<Option<CommandReply>, SimpleError> {
+        match result {
+            Ok(_) => Ok(None),
+            Err(err) => {
+                let err_msg = err.to_string();
+                if err_msg == INSUFFICIENT_BALANCE_MESSAGE {
+                    return Ok(Some(CommandReply::text_only(INSUFFICIENT_BALANCE_MESSAGE)));
+                }
+
+                Err(SimpleError::new(format!("{}, {}", context, err_msg)))
+            }
+        }
+    }
 
     pub fn new(lnbits_client: LNBitsClient,
                data_layer: DataLayer,
@@ -347,8 +384,13 @@ impl BusinessLogicContext {
                             None => None,
                         }).await.map_err(|e| SimpleError::from(e))?;
 
-                        try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, res.invoice()).await,
-                            "Could not pay invoice");
+                        let payment_result = self.handle_payment_result(
+                            self.pay_bolt11_invoice_as_matrix_is(sender, res.invoice()).await,
+                            "Could not pay invoice"
+                        )?;
+                        if let Some(reply) = payment_result {
+                            return Ok(reply);
+                        }
                     }
                     _ => {
                         return Err(SimpleError::new("Invalid LNURL"));
@@ -361,8 +403,13 @@ impl BusinessLogicContext {
 
                 let bolt11_invoice = bit_invoice.payment_request;
 
-                try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, bolt11_invoice.as_str()).await,
-                   "Could not pay invoice");
+                let payment_result = self.handle_payment_result(
+                    self.pay_bolt11_invoice_as_matrix_is(sender, bolt11_invoice.as_str()).await,
+                    "Could not pay invoice"
+                )?;
+                if let Some(reply) = payment_result {
+                    return Ok(reply);
+                }
             }
         }
         let mut reply = if memo.is_some() {
@@ -467,8 +514,13 @@ impl BusinessLogicContext {
     async fn do_process_pay(&self, sender: &str, bol11_invoice: &str) -> Result<CommandReply, SimpleError> {
         log::info!("processing pay command ..");
 
-        try_with!(self.pay_bolt11_invoice_as_matrix_is(sender, bol11_invoice).await,
-                  "Could not pay invoice");
+        let payment_result = self.handle_payment_result(
+            self.pay_bolt11_invoice_as_matrix_is(sender, bol11_invoice).await,
+            "Could not pay invoice"
+        )?;
+        if let Some(reply) = payment_result {
+            return Ok(reply);
+        }
 
         Ok(CommandReply::text_only(format!("{:?} payed an invoice", sender).as_str()))
     }
@@ -566,6 +618,30 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(lines.join("\n").as_str()))
     }
 
+    fn should_forward_donate_reply(reply: &CommandReply) -> bool {
+        reply
+            .text
+            .as_deref()
+            .map(BusinessLogicContext::is_insufficient_balance_text)
+            .unwrap_or(false)
+    }
+
+    fn handle_donate_send_result(
+        &self,
+        send_result: Result<CommandReply, SimpleError>,
+    ) -> Result<CommandReply, SimpleError> {
+        match send_result {
+            Ok(reply) => {
+                if BusinessLogicContext::should_forward_donate_reply(&reply) {
+                    return Ok(reply);
+                }
+
+                Ok(CommandReply::text_only("Thanks for the donation"))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn do_process_donate(&self, sender: &str,  amount: u64) -> Result<CommandReply, SimpleError> {
         const DONATION_ADDRESS: &str = "node-runner@btcpay.yourdevice.ch";
 
@@ -574,10 +650,7 @@ impl BusinessLogicContext {
                                  DONATION_ADDRESS,
                                  amount,
                                  &Some(format!("a generouse donation from {:?}", sender))).await;
-        match result {
-            Ok(_) => Ok(CommandReply::text_only("Thanks for the donation")),
-            Err(error) => Err(error)
-        }
+        self.handle_donate_send_result(result)
 
     }
 
@@ -733,8 +806,13 @@ impl BusinessLogicContext {
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
                                       "Could not get wallet");
 
-        try_with!(self.lnbits_client.pay(&wallet, &payment_params).await,
-                  "Could not perform payment");
+        if let Err(err) = self.lnbits_client.pay(&wallet, &payment_params).await {
+            if BusinessLogicContext::payment_error_is_insufficient_balance(&err) {
+                return Err(SimpleError::new(INSUFFICIENT_BALANCE_MESSAGE));
+            }
+
+            return Err(SimpleError::new(format!("Could not perform payment: {}", err)));
+        }
 
         Ok(())
     }
@@ -810,5 +888,32 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn donate_forwards_insufficient_balance_reply() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(
+            LNBitsClient::new(&config),
+            DataLayer::new(&config),
+            &config,
+        );
+
+        let result = ctx.handle_donate_send_result(Ok(CommandReply::text_only(
+            INSUFFICIENT_BALANCE_MESSAGE,
+        )));
+
+        let reply = result.expect("donation should forward insufficient balance reply");
+        assert_eq!(reply.text.as_deref(), Some(INSUFFICIENT_BALANCE_MESSAGE));
     }
 }
