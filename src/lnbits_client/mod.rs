@@ -6,6 +6,7 @@ pub mod lnbits_client {
     use std::time::Duration;
     use serde::{Deserialize, Serialize};
     use serde_json;
+    use std::fmt::{Display, Formatter};
     use uuid::Uuid;
     use crate::Config;
 
@@ -120,12 +121,46 @@ pub mod lnbits_client {
 
 
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct Error {
         pub name: String,
         pub message: String,
         pub code: String,
         pub status: String
+    }
+
+    #[derive(Debug)]
+    pub enum PayError {
+        Api(Error),
+        Transport(reqwest::Error),
+        UnexpectedResponse(String),
+    }
+
+    impl Display for PayError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                PayError::Api(error) => write!(f, "LNbits error {}: {}", error.name, error.message),
+                PayError::Transport(err) => write!(f, "{}", err),
+                PayError::UnexpectedResponse(body) => {
+                    write!(f, "Unexpected LNbits response: {}", body)
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for PayError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                PayError::Transport(err) => Some(err),
+                _ => None,
+            }
+        }
+    }
+
+    impl From<reqwest::Error> for PayError {
+        fn from(err: reqwest::Error) -> Self {
+            PayError::Transport(err)
+        }
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -267,20 +302,30 @@ pub struct LNBitsClient {
         // AE: Funny how the telegram bot tries to put the answer of this into a BitInvoice, I wouldn't
         pub async fn pay(&self,
                          wallet: &Wallet,
-                         payment_params: &PaymentParams) -> Result<(), reqwest::Error> {
+                         payment_params: &PaymentParams) -> Result<(), PayError> {
             let headers = self.headers_with_key(&wallet.admin_key);
 
-            self
+            let response = self
                 .client
                 .post([self.url.as_str(), "/api/v1/payments"].join(""))
                 .headers(headers)
                 .timeout(Duration::from_secs(3600))
                 .json(&payment_params)
                 .send()
-                .await?
-                .text()
                 .await?;
-            Ok(())
+
+            let status = response.status();
+            let body = response.text().await?;
+
+            if status.is_success() {
+                return Ok(());
+            }
+
+            if let Ok(api_error) = serde_json::from_str::<Error>(&body) {
+                return Err(PayError::Api(api_error));
+            }
+
+            Err(PayError::UnexpectedResponse(body))
         }
 
         pub async fn invoice_status(&self, api_key: &str, payment_hash: &str) -> Result<bool, reqwest::Error> {
@@ -398,6 +443,68 @@ pub struct LNBitsClient {
                 password: String::from(password),
                 password_repeat: String::from(password),
                 extensions: vec![],
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use httpmock::{Method::POST, MockServer};
+
+        fn test_config(base_url: &str) -> Config {
+            Config::new(
+                "https://matrix.example",
+                "@bot:example.org",
+                "password",
+                base_url,
+                "bearer",
+                "api-key",
+                "sqlite::memory:",
+                "Info",
+                None,
+            )
+        }
+
+        fn test_wallet() -> Wallet {
+            Wallet {
+                id: "wallet".to_string(),
+                admin: None,
+                admin_key: "adminkey".to_string(),
+                in_key: "inkey".to_string(),
+                name: "Wallet".to_string(),
+                user: "user".to_string(),
+                balance: None,
+            }
+        }
+
+        #[tokio::test]
+        async fn pay_propagates_api_errors() {
+            let server = MockServer::start_async().await;
+
+            let _mock = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/api/v1/payments");
+                then.status(402)
+                    .header("content-type", "application/json")
+                    .body(
+                        r#"{"name":"InsufficientBalance","message":"Not enough funds","code":"402","status":"ERROR"}"#,
+                    );
+            });
+
+            let config = test_config(&server.base_url());
+            let client = LNBitsClient::new(&config);
+            let wallet = test_wallet();
+            let params = PaymentParams::new(true, "lnbc1testinvoice");
+
+            let err = client.pay(&wallet, &params).await.expect_err("expected error");
+
+            match err {
+                PayError::Api(api_error) => {
+                    assert_eq!(api_error.name, "InsufficientBalance");
+                    assert_eq!(api_error.message, "Not enough funds");
+                }
+                other => panic!("unexpected error variant: {:?}", other),
             }
         }
     }

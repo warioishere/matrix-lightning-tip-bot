@@ -733,8 +733,9 @@ impl BusinessLogicContext {
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
                                       "Could not get wallet");
 
-        try_with!(self.lnbits_client.pay(&wallet, &payment_params).await,
-                  "Could not perform payment");
+        if let Err(err) = self.lnbits_client.pay(&wallet, &payment_params).await {
+            return Err(SimpleError::new(format!("Could not perform payment: {}", err)));
+        }
 
         Ok(())
     }
