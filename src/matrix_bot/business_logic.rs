@@ -59,8 +59,6 @@ fn help_boltz_swaps_text(with_prefix: bool) -> String {
 
 pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
 
-const INSUFFICIENT_BALANCE_MESSAGE: &str = "Insufficient balance.";
-
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     pub lnbits_client: LNBitsClient,
@@ -75,7 +73,7 @@ impl BusinessLogicContext {
     fn is_insufficient_balance_text(text: &str) -> bool {
         let normalized = text.trim();
         let normalized = normalized.trim_end_matches('.');
-        normalized.eq_ignore_ascii_case("insufficient balance")
+        normalized.eq_ignore_ascii_case("insufficient balance") || normalized.to_lowercase().contains("routing fee")
     }
 
     fn payment_error_is_insufficient_balance(pay_error: &PayError) -> bool {
@@ -98,8 +96,8 @@ impl BusinessLogicContext {
             Ok(_) => Ok(None),
             Err(err) => {
                 let err_msg = err.to_string();
-                if err_msg == INSUFFICIENT_BALANCE_MESSAGE {
-                    return Ok(Some(CommandReply::text_only(INSUFFICIENT_BALANCE_MESSAGE)));
+                if BusinessLogicContext::is_insufficient_balance_text(&err_msg) {
+                    return Ok(Some(CommandReply::text_only(&err_msg)));
                 }
 
                 Err(SimpleError::new(format!("{}, {}", context, err_msg)))
@@ -808,7 +806,7 @@ impl BusinessLogicContext {
 
         if let Err(err) = self.lnbits_client.pay(&wallet, &payment_params).await {
             if BusinessLogicContext::payment_error_is_insufficient_balance(&err) {
-                return Err(SimpleError::new(INSUFFICIENT_BALANCE_MESSAGE));
+                return Err(SimpleError::new(err.to_string()));
             }
 
             return Err(SimpleError::new(format!("Could not perform payment: {}", err)));
@@ -909,11 +907,30 @@ mod tests {
             &config,
         );
 
+        let insufficient_balance_msg = "Insufficient balance.";
         let result = ctx.handle_donate_send_result(Ok(CommandReply::text_only(
-            INSUFFICIENT_BALANCE_MESSAGE,
+            insufficient_balance_msg,
         )));
 
         let reply = result.expect("donation should forward insufficient balance reply");
-        assert_eq!(reply.text.as_deref(), Some(INSUFFICIENT_BALANCE_MESSAGE));
+        assert_eq!(reply.text.as_deref(), Some(insufficient_balance_msg));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_detects_routing_fee_error() {
+        let routing_fee_error = "You must reserve at least (12  sat) to cover potential routing fees.";
+        assert!(BusinessLogicContext::is_insufficient_balance_text(routing_fee_error));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_detects_insufficient_balance() {
+        assert!(BusinessLogicContext::is_insufficient_balance_text("Insufficient balance"));
+        assert!(BusinessLogicContext::is_insufficient_balance_text("insufficient balance."));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_ignores_other_errors() {
+        assert!(!BusinessLogicContext::is_insufficient_balance_text("Some other error"));
+        assert!(!BusinessLogicContext::is_insufficient_balance_text("Payment failed"));
     }
 }
