@@ -59,8 +59,6 @@ fn help_boltz_swaps_text(with_prefix: bool) -> String {
 
 pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
 
-const INSUFFICIENT_BALANCE_MESSAGE: &str = "Insufficient balance.";
-
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
     pub lnbits_client: LNBitsClient,
@@ -909,12 +907,13 @@ mod tests {
             &config,
         );
 
+        let insufficient_balance_msg = "Insufficient balance.";
         let result = ctx.handle_donate_send_result(Ok(CommandReply::text_only(
-            INSUFFICIENT_BALANCE_MESSAGE,
+            insufficient_balance_msg,
         )));
 
         let reply = result.expect("donation should forward insufficient balance reply");
-        assert_eq!(reply.text.as_deref(), Some(INSUFFICIENT_BALANCE_MESSAGE));
+        assert_eq!(reply.text.as_deref(), Some(insufficient_balance_msg));
     }
 
     #[test]
