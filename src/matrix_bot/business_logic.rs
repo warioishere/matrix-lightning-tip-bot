@@ -98,8 +98,8 @@ impl BusinessLogicContext {
             Ok(_) => Ok(None),
             Err(err) => {
                 let err_msg = err.to_string();
-                if err_msg == INSUFFICIENT_BALANCE_MESSAGE {
-                    return Ok(Some(CommandReply::text_only(INSUFFICIENT_BALANCE_MESSAGE)));
+                if BusinessLogicContext::is_insufficient_balance_text(&err_msg) {
+                    return Ok(Some(CommandReply::text_only(&err_msg)));
                 }
 
                 Err(SimpleError::new(format!("{}, {}", context, err_msg)))
@@ -808,7 +808,7 @@ impl BusinessLogicContext {
 
         if let Err(err) = self.lnbits_client.pay(&wallet, &payment_params).await {
             if BusinessLogicContext::payment_error_is_insufficient_balance(&err) {
-                return Err(SimpleError::new(INSUFFICIENT_BALANCE_MESSAGE));
+                return Err(SimpleError::new(err.to_string()));
             }
 
             return Err(SimpleError::new(format!("Could not perform payment: {}", err)));
