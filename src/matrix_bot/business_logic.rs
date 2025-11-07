@@ -75,7 +75,7 @@ impl BusinessLogicContext {
     fn is_insufficient_balance_text(text: &str) -> bool {
         let normalized = text.trim();
         let normalized = normalized.trim_end_matches('.');
-        normalized.eq_ignore_ascii_case("insufficient balance")
+        normalized.eq_ignore_ascii_case("insufficient balance") || normalized.to_lowercase().contains("routing fee")
     }
 
     fn payment_error_is_insufficient_balance(pay_error: &PayError) -> bool {
@@ -915,5 +915,23 @@ mod tests {
 
         let reply = result.expect("donation should forward insufficient balance reply");
         assert_eq!(reply.text.as_deref(), Some(INSUFFICIENT_BALANCE_MESSAGE));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_detects_routing_fee_error() {
+        let routing_fee_error = "You must reserve at least (12  sat) to cover potential routing fees.";
+        assert!(BusinessLogicContext::is_insufficient_balance_text(routing_fee_error));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_detects_insufficient_balance() {
+        assert!(BusinessLogicContext::is_insufficient_balance_text("Insufficient balance"));
+        assert!(BusinessLogicContext::is_insufficient_balance_text("insufficient balance."));
+    }
+
+    #[test]
+    fn is_insufficient_balance_text_ignores_other_errors() {
+        assert!(!BusinessLogicContext::is_insufficient_balance_text("Some other error"));
+        assert!(!BusinessLogicContext::is_insufficient_balance_text("Payment failed"));
     }
 }
