@@ -496,15 +496,8 @@ pub mod matrix_bot {
             }
 
             log::info!("Bootstrapping cross-signing for the bot account ..");
-            let user_id = match UserId::parse(self.config.matrix_username.as_str()) {
-                Ok(uid) => uid,
-                Err(e) => {
-                    log::error!("Cannot parse bot user id for UIA: {:?}", e);
-                    return;
-                }
-            };
             let mut password = Password::new(
-                UserIdentifier::UserIdOrLocalpart(user_id.as_str().to_owned()),
+                UserIdentifier::UserIdOrLocalpart(self.config.matrix_username.clone()),
                 self.config.matrix_password.clone(),
             );
             password.session = None;
