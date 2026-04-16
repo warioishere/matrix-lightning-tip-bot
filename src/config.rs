@@ -11,6 +11,7 @@ pub mod config {
         pub lnbits_bearer_token: String,
         pub lnbits_api_key: String,
         pub database_url: String,
+        pub store_path: String,
         pub debug_level: String,
         pub allowed_matrix_servers: Option<Vec<String>>
     }
@@ -23,6 +24,7 @@ pub mod config {
                    lnbits_bearer_token: &str,
                    lnbits_api_key: &str,
                    database_url: &str,
+                   store_path: &str,
                    debug_level: &str,
                    allowed_matrix_servers: Option<Vec<String>>) -> Config {
             Config {
@@ -33,6 +35,7 @@ pub mod config {
                 lnbits_bearer_token: lnbits_bearer_token.to_string(),
                 lnbits_api_key: lnbits_api_key.to_string(),
                 database_url: database_url.to_string(),
+                store_path: store_path.to_string(),
                 debug_level: debug_level.to_string(),
                 allowed_matrix_servers
             }
@@ -79,6 +82,10 @@ pub mod config {
                 .long("database-url")
                 .required(true)
                 .help("database url"))
+            .arg(Arg::new("store-path")
+                .long("store-path")
+                .required(true)
+                .help("directory for persistent matrix-sdk state and crypto store"))
             .arg(Arg::new("debug-level")
                 .long("debug-level")
                 .default_value("Info")
@@ -106,6 +113,8 @@ pub mod config {
 
         let database_url = matches.get_one::<String>("database-url").unwrap();
 
+        let store_path = matches.get_one::<String>("store-path").unwrap();
+
         let debug_level = matches.get_one::<String>("debug-level").unwrap();
 
         let allowed_matrix_servers = matches
@@ -119,6 +128,7 @@ pub mod config {
                     lnbits_bearer_token,
                     lnbits_api_key,
                     database_url,
+                    store_path,
                     debug_level,
                     allowed_matrix_servers)
     }

@@ -8,14 +8,19 @@ pub mod matrix_bot {
 
     use matrix_sdk::attachment::AttachmentConfig;
     use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
+    use matrix_sdk::authentication::matrix::MatrixSession;
+    use matrix_sdk::ruma::api::client::uiaa::{AuthData, Password, UserIdentifier};
 
     use crate::{Config, DataLayer};
     use crate::lnbits_client::lnbits_client::LNBitsClient;
     use crate::matrix_bot::business_logic::BusinessLogicContext;
     use tokio::time::{sleep, Duration};
     use std::future::Future;
+    use std::path::{Path, PathBuf};
+    use std::fs;
     use mime;
     use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId, UserId};
+    use uuid::Uuid;
     
     use simple_error::{bail, try_with};
     use simple_error::SimpleError;
@@ -410,8 +415,16 @@ pub mod matrix_bot {
                 Url::parse(config.matrix_server.as_str())
                     .expect("Couldn't parse the homeserver URL");
 
+            let store_path = Path::new(config.store_path.as_str());
+            if !store_path.exists() {
+                fs::create_dir_all(store_path).expect("could not create store-path directory");
+            }
+
+            let passphrase = load_or_create_passphrase(store_path);
+
             let client = Client::builder()
                 .homeserver_url(homeserver_url)
+                .sqlite_store(store_path, Some(passphrase.as_str()))
                 .build()
                 .await
                 .expect("failed to build client");
@@ -425,6 +438,82 @@ pub mod matrix_bot {
             };
 
             Ok(matrix_bot)
+        }
+
+        fn session_file_path(&self) -> PathBuf {
+            Path::new(self.config.store_path.as_str()).join("session.json")
+        }
+
+        async fn login_or_restore(&self) -> matrix_sdk::Result<()> {
+            let session_file = self.session_file_path();
+
+            if session_file.exists() {
+                log::info!("Restoring saved matrix session from {:?}", session_file);
+                let serialized = fs::read(&session_file)
+                    .expect("failed to read session file");
+                let session: MatrixSession = serde_json::from_slice(&serialized)
+                    .expect("failed to parse session file");
+                self.client.restore_session(session).await?;
+                return Ok(());
+            }
+
+            log::info!("No saved session, logging in with username/password");
+            self.client
+                .matrix_auth()
+                .login_username(
+                    self.config.matrix_username.as_str(),
+                    self.config.matrix_password.as_str(),
+                )
+                .initial_device_display_name("Lightning Tip Bot")
+                .send()
+                .await?;
+
+            let session = self.client
+                .matrix_auth()
+                .session()
+                .expect("session must exist right after login");
+            let serialized = serde_json::to_vec(&session)
+                .expect("failed to serialize session");
+            fs::write(&session_file, serialized)
+                .expect("failed to persist session file");
+            log::info!("Persisted new matrix session to {:?}", session_file);
+
+            Ok(())
+        }
+
+        async fn ensure_cross_signing(&self) {
+            let encryption = self.client.encryption();
+            match encryption.cross_signing_status().await {
+                Some(status)
+                    if status.has_master
+                        && status.has_self_signing
+                        && status.has_user_signing =>
+                {
+                    log::info!("Cross-signing already bootstrapped for this account");
+                    return;
+                }
+                _ => {}
+            }
+
+            log::info!("Bootstrapping cross-signing for the bot account ..");
+            let user_id = match UserId::parse(self.config.matrix_username.as_str()) {
+                Ok(uid) => uid,
+                Err(e) => {
+                    log::error!("Cannot parse bot user id for UIA: {:?}", e);
+                    return;
+                }
+            };
+            let mut password = Password::new(
+                UserIdentifier::UserIdOrLocalpart(user_id.as_str().to_owned()),
+                self.config.matrix_password.clone(),
+            );
+            password.session = None;
+            let auth = AuthData::Password(password);
+
+            match encryption.bootstrap_cross_signing(Some(auth)).await {
+                Ok(_) => log::info!("Cross-signing bootstrapped successfully"),
+                Err(e) => log::error!("Failed to bootstrap cross-signing: {:?}", e),
+            }
         }
 
         pub async fn init(&self) {
@@ -702,15 +791,9 @@ pub mod matrix_bot {
         pub async fn sync(&self) -> matrix_sdk::Result<()>  {
             log::info!("Starting sync ..");
 
-            let user_id = self.config.matrix_username.as_str();
+            self.login_or_restore().await?;
 
-            log::info!("Loging client in ..");
-
-            self.client
-                .matrix_auth()
-                .login_username(user_id, self.config.matrix_password.as_str())
-                .send()
-                .await?;
+            self.ensure_cross_signing().await;
 
             log::info!("Done with preliminary steps ..");
 
@@ -722,6 +805,28 @@ pub mod matrix_bot {
 
             Ok(())
         }
+    }
+
+    fn load_or_create_passphrase(store_path: &Path) -> String {
+        let passphrase_file = store_path.join(".passphrase");
+        if passphrase_file.exists() {
+            return fs::read_to_string(&passphrase_file)
+                .expect("failed to read store passphrase file")
+                .trim()
+                .to_owned();
+        }
+        let passphrase = format!(
+            "{}{}",
+            Uuid::new_v4().simple(),
+            Uuid::new_v4().simple()
+        );
+        fs::write(&passphrase_file, &passphrase)
+            .expect("failed to write generated store passphrase");
+        log::info!(
+            "Generated new store passphrase at {:?}",
+            passphrase_file
+        );
+        passphrase
     }
 }
 
