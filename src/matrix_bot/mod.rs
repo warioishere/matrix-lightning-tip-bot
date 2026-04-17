@@ -772,12 +772,17 @@ pub mod matrix_bot {
         }
 
         fn bot_name(&self) -> String {
-            match UserId::parse(self.config.matrix_username.as_str()) {
-                Ok(user_id) => user_id.localpart().to_owned(),
-                Err(e) => {
-                    log::warn!("Could not parse my own name from config: {:?}", e);
-                    "".to_string()
+            let raw = self.config.matrix_username.as_str();
+            if raw.starts_with('@') {
+                match UserId::parse(raw) {
+                    Ok(user_id) => user_id.localpart().to_owned(),
+                    Err(e) => {
+                        log::warn!("Could not parse matrix-username as user id: {:?}", e);
+                        raw.to_string()
+                    }
                 }
+            } else {
+                raw.to_string()
             }
         }
 
