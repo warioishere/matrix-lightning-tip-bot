@@ -15,7 +15,7 @@ clap = "4.5.40"
 argfile = "0.2.1"
 wild = "2.2.1"
 url = "2.5.2"
-matrix-sdk = { version = "0.14.0", features = ["e2e-encryption", "qrcode", "sqlite"] }
+matrix-sdk = { version = "0.16.0", features = ["e2e-encryption", "qrcode", "sqlite"] }
 tokio = { version = "1.40.0", features = ["full"] }
 simple_logger = "5.0.0"
 log = "0.4.22"
