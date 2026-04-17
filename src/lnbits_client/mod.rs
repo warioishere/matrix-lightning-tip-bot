@@ -55,13 +55,6 @@ pub mod lnbits_client {
     }
 
     #[derive(Debug, Deserialize, Serialize)]
-    pub struct TransferParams {
-        pub memo: String,
-        pub num_satoshis: i64,
-        pub dest_wallet_id: String
-    }
-
-    #[derive(Debug, Deserialize, Serialize)]
     pub struct BitInvoice {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub payment_hash: Option<String>,
