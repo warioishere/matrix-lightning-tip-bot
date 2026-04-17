@@ -7,7 +7,7 @@ pub mod matrix_bot {
     use matrix_sdk::{config::SyncSettings, ruma::events::room::member::{StrippedRoomMemberEvent, OriginalSyncRoomMemberEvent}, Client, Room, RoomState};
 
     use matrix_sdk::attachment::AttachmentConfig;
-    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalRoomMessageEvent, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
+    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
     use matrix_sdk::authentication::matrix::MatrixSession;
     use matrix_sdk::ruma::api::client::uiaa::{AuthData, Password, UserIdentifier};
 
@@ -350,14 +350,7 @@ pub mod matrix_bot {
     async fn send_reply_to_event_in_room(room: &Room,
                                          event: &OriginalSyncRoomMessageEvent,
                                          reply: &str) -> Result<(), SimpleError> {
-        let original_room_message_event = OriginalRoomMessageEvent {
-            content: event.content.clone(),
-            event_id: event.event_id.clone(),
-            origin_server_ts: event.origin_server_ts,
-            room_id: room.room_id().to_owned(),
-            sender: event.sender.clone(),
-            unsigned: event.unsigned.clone(),
-        };
+        let original_room_message_event = event.clone().into_full_event(room.room_id().to_owned());
 
         let html = crate::matrix_bot::utils::markdown_to_html(reply);
         let reply_message = RoomMessageEventContent::text_html(reply.to_string(), html);
