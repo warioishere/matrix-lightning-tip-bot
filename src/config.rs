@@ -51,7 +51,7 @@ pub mod config {
         ).unwrap();
 
         let matches = Command::new("LN-Matrix-Bot")
-            .version("0.9.4")
+            .version("1.0.0")
             .author("warioishere")
             .about("LN-Matrix-Bot")
             .arg(Arg::new("matrix-server")
