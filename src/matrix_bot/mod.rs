@@ -7,7 +7,7 @@ pub mod matrix_bot {
     use matrix_sdk::{config::SyncSettings, ruma::events::room::member::{StrippedRoomMemberEvent, OriginalSyncRoomMemberEvent}, Client, Room, RoomState};
 
     use matrix_sdk::attachment::AttachmentConfig;
-    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalSyncRoomMessageEvent, RoomMessageEventContent, TextMessageEventContent, MessageType};
+    use matrix_sdk::ruma::events::room::message::{AddMentions, ForwardThread, MessageFormat, OriginalSyncRoomMessageEvent, Relation, RoomMessageEventContent, TextMessageEventContent, MessageType};
     use matrix_sdk::authentication::matrix::MatrixSession;
     use matrix_sdk::ruma::api::client::uiaa::{AuthData, Password, UserIdentifier};
 
@@ -171,14 +171,12 @@ pub mod matrix_bot {
 
         match parse_command(&msg_body)? {
             Some(Command::Tip { amount, memo, .. }) => {
-                let replyee = extracted_msg_body
-                    .formatted_msg_body
-                    .as_deref()
-                    .and_then(|body| extract_user_from_formatted_msg_body(body));
-                let replyee = replyee.ok_or_else(|| {
-                    log::warn!("Could not determine reply target from formatted body");
-                    SimpleError::new("No reply target")
-                })?;
+                let replyee = resolve_reply_target(room, event, extracted_msg_body)
+                    .await
+                    .ok_or_else(|| {
+                        log::warn!("Could not determine reply target");
+                        SimpleError::new("No reply target")
+                    })?;
                 Ok(Command::Tip {
                     sender: sender.to_string(),
                     replyee: replyee.to_string(),
@@ -324,6 +322,39 @@ pub mod matrix_bot {
         let complete_id = format!("@{}", r[1]);
 
         OwnedUserId::try_from(complete_id).ok()
+    }
+
+    // MSC2781 / Matrix 1.13: modern clients no longer emit the <mx-reply> HTML
+    // fallback, so parsing `formatted_body` to discover the replyee is no
+    // longer reliable. The spec-driven way is to follow `m.relates_to.in_reply_to`
+    // and fetch the original event from the homeserver to read its `sender`.
+    async fn resolve_reply_target(
+        room: &Room,
+        event: &OriginalSyncRoomMessageEvent,
+        extracted_msg_body: &ExtractedMessageBody,
+    ) -> Option<OwnedUserId> {
+        if let Some(Relation::Reply { in_reply_to }) = &event.content.relates_to {
+            match room.event(&in_reply_to.event_id, None).await {
+                Ok(timeline_event) => {
+                    match timeline_event.raw().deserialize() {
+                        Ok(any_event) => return Some(any_event.sender().to_owned()),
+                        Err(e) => log::warn!(
+                            "Could not deserialize in-reply-to event {}: {:?}",
+                            in_reply_to.event_id, e
+                        ),
+                    }
+                }
+                Err(e) => log::warn!(
+                    "Could not fetch in-reply-to event {}: {:?}",
+                    in_reply_to.event_id, e
+                ),
+            }
+        }
+
+        extracted_msg_body
+            .formatted_msg_body
+            .as_deref()
+            .and_then(extract_user_from_formatted_msg_body)
     }
 
     fn extract_body(event: &OriginalSyncRoomMessageEvent) -> ExtractedMessageBody {
