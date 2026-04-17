@@ -6,6 +6,7 @@ pub mod lnbits_client {
     use std::time::Duration;
     use serde::{Deserialize, Serialize};
     use serde_json;
+    use simple_error::SimpleError;
     use std::fmt::{Display, Formatter};
     use uuid::Uuid;
     use crate::Config;
@@ -64,7 +65,6 @@ pub mod lnbits_client {
     pub struct BitInvoice {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub payment_hash: Option<String>,
-        #[serde(rename = "payment_request", alias = "bolt11")]
         pub payment_request: String,
     }
 
@@ -292,7 +292,7 @@ pub struct LNBitsClient {
 
         pub async fn invoice(&self,
                              wallet: &Wallet,
-                             invoice_params: &InvoiceParams) -> Result<BitInvoice, reqwest::Error> {
+                             invoice_params: &InvoiceParams) -> Result<BitInvoice, SimpleError> {
             let headers = self.headers_with_key(&wallet.in_key);
 
             let response = self
@@ -301,11 +301,37 @@ pub struct LNBitsClient {
                 .headers(headers)
                 .json(&invoice_params)
                 .send()
-                .await?
-                .json::<BitInvoice>()
-                .await?;
+                .await
+                .map_err(|e| SimpleError::new(format!("lnbits invoice request failed: {}", e)))?;
 
-            Ok(response)
+            let status = response.status();
+            let body = response
+                .text()
+                .await
+                .map_err(|e| SimpleError::new(format!("lnbits invoice body read failed: {}", e)))?;
+
+            if !status.is_success() {
+                log::error!("lnbits /api/v1/payments error status={} body={}", status, body);
+                return Err(SimpleError::new(format!(
+                    "lnbits invoice endpoint returned {}: {}",
+                    status, body
+                )));
+            }
+
+            match serde_json::from_str::<BitInvoice>(&body) {
+                Ok(invoice) => Ok(invoice),
+                Err(e) => {
+                    log::error!(
+                        "Failed to decode BitInvoice from lnbits: {} (body: {})",
+                        e,
+                        body
+                    );
+                    Err(SimpleError::new(format!(
+                        "could not decode lnbits invoice response: {}",
+                        e
+                    )))
+                }
+            }
         }
 
         // AE: Funny how the telegram bot tries to put the answer of this into a BitInvoice, I wouldn't
