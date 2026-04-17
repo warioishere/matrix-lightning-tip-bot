@@ -79,17 +79,11 @@ pub mod matrix_bot {
         log::info!("Successfully joined room {}", room.room_id());
 
         // Upon successful join send a single message
-        let is_direct = room.is_direct().await.unwrap_or(false);
-        let is_encrypted = room.encryption_state().is_encrypted();
-        let help_text = business_logic_context.get_help_content(!is_direct, is_encrypted);
-        let plain = if is_encrypted {
-            format!("{}\n\nThanks for inviting me. I support the following commands:\n{}",
-                    crate::matrix_bot::business_logic::VERIFICATION_NOTE,
-                    help_text)
-        } else {
-            format!("Thanks for inviting me. I support the following commands:\n{}",
-                    help_text)
-        };
+        let help_text = business_logic_context.get_help_content();
+        let plain = format!(
+            "Thanks for inviting me. I support the following commands:\n{}",
+            help_text
+        );
         let html = crate::matrix_bot::utils::markdown_to_html(plain.as_str());
         let content = RoomMessageEventContent::text_html(plain, html);
 
@@ -140,8 +134,8 @@ pub mod matrix_bot {
             Some("send") => send("", msg.as_str()).map(Some),
             Some("invoice") => invoice("", msg.as_str()).map(Some),
             Some("pay") => pay("", msg.as_str()).map(Some),
-            Some("help-boltz-swaps") => help_boltz_swaps(true, true).map(Some),
-            Some("help") => help(true, true).map(Some),
+            Some("help-boltz-swaps") => help_boltz_swaps().map(Some),
+            Some("help") => help().map(Some),
             Some("donate") => donate("", msg.as_str()).map(Some),
             Some("party") => party().map(Some),
             Some("version") => version().map(Some),
@@ -166,7 +160,6 @@ pub mod matrix_bot {
         let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
         let mut msg_body = last_line(raw.as_str());
         let is_direct = room.is_direct().await.unwrap_or(false);
-        let is_encrypted = room.encryption_state().is_encrypted();
 
         if !is_direct && !msg_body.starts_with('!') {
             return Ok(Command::None);
@@ -211,8 +204,8 @@ pub mod matrix_bot {
             }
             Some(Command::Invoice { .. }) => invoice(sender, msg_body.as_str()),
             Some(Command::Pay { .. }) => pay(sender, msg_body.as_str()),
-            Some(Command::HelpBoltzSwaps { .. }) => help_boltz_swaps(!is_direct, is_encrypted),
-            Some(Command::Help { .. }) => help(!is_direct, is_encrypted),
+            Some(Command::HelpBoltzSwaps { .. }) => help_boltz_swaps(),
+            Some(Command::Help { .. }) => help(),
             Some(Command::Donate { amount, .. }) => Ok(Command::Donate {
                 sender: sender.to_string(),
                 amount,

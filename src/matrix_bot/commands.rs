@@ -7,8 +7,8 @@ pub enum Command  {
     Send    { sender: String, amount: u64, recipient: String, memo: Option<String> },
     Invoice { sender: String, amount: u64, memo: Option<String> },
     Pay     { sender: String, invoice: String },
-    Help    { with_prefix: bool, include_note: bool },
-    HelpBoltzSwaps { with_prefix: bool, include_note: bool },
+    Help    { },
+    HelpBoltzSwaps { },
     Donate  { sender: String, amount: u64 },
     Party   { },
     Version { },
@@ -104,12 +104,12 @@ pub fn pay(sender:&str,
                       invoice })
 }
 
-pub fn help(with_prefix: bool, include_note: bool) -> Result<Command, SimpleError> {
-    Ok(Command::Help { with_prefix, include_note })
+pub fn help() -> Result<Command, SimpleError> {
+    Ok(Command::Help { })
 }
 
-pub fn help_boltz_swaps(with_prefix: bool, include_note: bool) -> Result<Command, SimpleError> {
-    Ok(Command::HelpBoltzSwaps { with_prefix, include_note })
+pub fn help_boltz_swaps() -> Result<Command, SimpleError> {
+    Ok(Command::HelpBoltzSwaps { })
 }
 
 

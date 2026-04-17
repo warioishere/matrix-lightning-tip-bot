@@ -41,23 +41,6 @@ const HELP_BOLTZ_SWAPS: &str = "Boltz swaps convert funds between onchain and Li
 **!boltz-offchain-to-onchain <amount> <onchain-address>** - After you confirm with **yes**, the bot sends an invoice from your lightning wallet including the swap fee. The funds will then be swapped into onchain bitcoin an arrive on the supplied address. If anything goes wrong, you will be informed, but you need to use the !refund command with the swap ID to refund the lightning invoice you paid before.\n\
 **!refund <swap_id>** - Requests a refund for a failed offchain to onchain swap. The bot tracks the refund and informs you once it's done.";
 
-fn help_commands(with_prefix: bool) -> String {
-    if with_prefix {
-        HELP_COMMANDS.to_string()
-    } else {
-        HELP_COMMANDS.replace('!', "")
-    }
-}
-
-fn help_boltz_swaps_text(with_prefix: bool) -> String {
-    if with_prefix {
-        HELP_BOLTZ_SWAPS.to_string()
-    } else {
-        HELP_BOLTZ_SWAPS.replace('!', "")
-    }
-}
-
-pub const VERIFICATION_NOTE: &str = "Don't worry about the red 'Not verified' warning. This is a limitation of bots in the Matrix ecosystem. Your messages are still encrypted and the admin cannot read them.";
 
 #[derive(Clone)]
 pub struct BusinessLogicContext  {
@@ -170,33 +153,16 @@ impl BusinessLogicContext {
         cache.get(room_id).cloned()
     }
 
-    pub fn get_help_content(&self, with_prefix: bool, include_note: bool) -> String {
-        if include_note {
-            format!(
-                "{}\n\nMatrix-Lightning-Tip-Bot {}\n\n{}",
-                VERIFICATION_NOTE,
-                env!("CARGO_PKG_VERSION"),
-                help_commands(with_prefix)
-            )
-        } else {
-            format!(
-                "Matrix-Lightning-Tip-Bot {}\n\n{}",
-                env!("CARGO_PKG_VERSION"),
-                help_commands(with_prefix)
-            )
-        }
+    pub fn get_help_content(&self) -> String {
+        format!(
+            "Matrix-Lightning-Tip-Bot {}\n\n{}",
+            env!("CARGO_PKG_VERSION"),
+            HELP_COMMANDS
+        )
     }
 
-    pub fn get_help_boltz_swaps_content(&self, with_prefix: bool, include_note: bool) -> String {
-        if include_note {
-            format!(
-                "{}\n\n{}",
-                VERIFICATION_NOTE,
-                help_boltz_swaps_text(with_prefix)
-            )
-        } else {
-            help_boltz_swaps_text(with_prefix)
-        }
+    pub fn get_help_boltz_swaps_content(&self) -> String {
+        HELP_BOLTZ_SWAPS.to_string()
     }
 
     pub async fn processing_command(&self,
@@ -238,12 +204,12 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_pay(sender.as_str(), invoice.as_str()).await,
                           "Could not process pay")
             },
-            Command::Help { with_prefix, include_note } => {
-                try_with!(self.do_process_help(with_prefix, include_note).await,
+            Command::Help { } => {
+                try_with!(self.do_process_help().await,
                           "Could not process help")
             },
-            Command::HelpBoltzSwaps { with_prefix, include_note } => {
-                try_with!(self.do_process_help_boltz_swaps(with_prefix, include_note).await,
+            Command::HelpBoltzSwaps { } => {
+                try_with!(self.do_process_help_boltz_swaps().await,
                           "Could not process help-boltz-swaps")
             },
             Command::Donate { sender, amount } => {
@@ -523,14 +489,14 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(format!("{:?} payed an invoice", sender).as_str()))
     }
 
-    async fn do_process_help(&self, with_prefix: bool, include_note: bool) -> Result<CommandReply, SimpleError> {
+    async fn do_process_help(&self) -> Result<CommandReply, SimpleError> {
         log::info!("processing help command ..");
-        Ok(CommandReply::text_only(self.get_help_content(with_prefix, include_note).as_str()))
+        Ok(CommandReply::text_only(self.get_help_content().as_str()))
     }
 
-    async fn do_process_help_boltz_swaps(&self, with_prefix: bool, include_note: bool) -> Result<CommandReply, SimpleError> {
+    async fn do_process_help_boltz_swaps(&self) -> Result<CommandReply, SimpleError> {
         log::info!("processing help-boltz-swaps command ..");
-        Ok(CommandReply::text_only(self.get_help_boltz_swaps_content(with_prefix, include_note).as_str()))
+        Ok(CommandReply::text_only(self.get_help_boltz_swaps_content().as_str()))
     }
 
     async fn do_process_party(&self) -> Result<CommandReply, SimpleError> {
