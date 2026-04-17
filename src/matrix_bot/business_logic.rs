@@ -265,18 +265,57 @@ impl BusinessLogicContext {
         );
         log::info!("Sending request to CoinGecko for currency: {}", currency);
 
-        let json: serde_json::Value = reqwest::get(&url)
-            .await
-            .map_err(SimpleError::from)?
-            .json()
+        // CoinGecko serves a bot-challenge / error page to the default reqwest
+        // user-agent, which used to show up as a silent empty object and made
+        // us bail with "Missing conversion rate". Send an explicit UA plus an
+        // Accept: application/json header to get a plain JSON price back.
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&url)
+            .header(
+                reqwest::header::USER_AGENT,
+                concat!(
+                    "matrix-lightning-tip-bot/",
+                    env!("CARGO_PKG_VERSION")
+                ),
+            )
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
             .await
             .map_err(SimpleError::from)?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(SimpleError::from)?;
+
+        if !status.is_success() {
+            log::error!("CoinGecko returned status={} body={}", status, body);
+            return Err(SimpleError::new(format!(
+                "CoinGecko request failed with status {}",
+                status
+            )));
+        }
+
+        let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+            log::error!(
+                "Could not parse CoinGecko response (body: {}): {}",
+                body,
+                e
+            );
+            SimpleError::new(format!("could not parse CoinGecko response: {}", e))
+        })?;
 
         let rate = json
             .get("bitcoin")
             .and_then(|v| v.get(&currency.to_lowercase()))
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| SimpleError::new("Missing conversion rate"))?;
+            .ok_or_else(|| {
+                log::error!(
+                    "CoinGecko response missing bitcoin.{}: {}",
+                    currency.to_lowercase(),
+                    body
+                );
+                SimpleError::new("Missing conversion rate")
+            })?;
 
         if rate == 0.0 {
             log::error!("Received zero rate from CoinGecko for currency: {}", currency);
