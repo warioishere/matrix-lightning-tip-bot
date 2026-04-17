@@ -483,29 +483,69 @@ pub mod matrix_bot {
 
         async fn ensure_cross_signing(&self) {
             let encryption = self.client.encryption();
-            match encryption.cross_signing_status().await {
+
+            let already_bootstrapped = matches!(
+                encryption.cross_signing_status().await,
                 Some(status)
                     if status.has_master
                         && status.has_self_signing
-                        && status.has_user_signing =>
-                {
-                    log::info!("Cross-signing already bootstrapped for this account");
-                    return;
+                        && status.has_user_signing
+            );
+
+            if already_bootstrapped {
+                log::info!("Cross-signing private keys already cached locally");
+            } else {
+                log::info!("Bootstrapping cross-signing for the bot account ..");
+                let mut password = Password::new(
+                    UserIdentifier::UserIdOrLocalpart(self.config.matrix_username.clone()),
+                    self.config.matrix_password.clone(),
+                );
+                password.session = None;
+                let auth = AuthData::Password(password);
+
+                match encryption.bootstrap_cross_signing(Some(auth)).await {
+                    Ok(_) => log::info!("Cross-signing bootstrapped successfully"),
+                    Err(e) => {
+                        log::error!("Failed to bootstrap cross-signing: {:?}", e);
+                        return;
+                    }
                 }
-                _ => {}
             }
 
-            log::info!("Bootstrapping cross-signing for the bot account ..");
-            let mut password = Password::new(
-                UserIdentifier::UserIdOrLocalpart(self.config.matrix_username.clone()),
-                self.config.matrix_password.clone(),
-            );
-            password.session = None;
-            let auth = AuthData::Password(password);
+            // bootstrap_cross_signing does not self-sign the current device
+            // (it only uploads the master/self/user-signing public keys).
+            // We have to explicitly call Device::verify() on our own device so
+            // the self-signing key produces a signature for this device_id;
+            // otherwise clients still show "encrypted by an unverified device".
+            let own_user_id = match self.client.user_id() {
+                Some(uid) => uid.to_owned(),
+                None => {
+                    log::warn!("No user_id on client, cannot sign own device");
+                    return;
+                }
+            };
+            let own_device_id = match self.client.device_id() {
+                Some(did) => did.to_owned(),
+                None => {
+                    log::warn!("No device_id on client, cannot sign own device");
+                    return;
+                }
+            };
 
-            match encryption.bootstrap_cross_signing(Some(auth)).await {
-                Ok(_) => log::info!("Cross-signing bootstrapped successfully"),
-                Err(e) => log::error!("Failed to bootstrap cross-signing: {:?}", e),
+            match encryption.get_device(&own_user_id, &own_device_id).await {
+                Ok(Some(device)) => {
+                    if device.is_cross_signed_by_owner() {
+                        log::info!("Current device is already cross-signed by owner");
+                    } else {
+                        log::info!("Signing current device with our self-signing key ..");
+                        match device.verify().await {
+                            Ok(_) => log::info!("Current device successfully signed"),
+                            Err(e) => log::error!("Failed to sign current device: {:?}", e),
+                        }
+                    }
+                }
+                Ok(None) => log::warn!("Own device not found in crypto store"),
+                Err(e) => log::warn!("Error retrieving own device: {:?}", e),
             }
         }
 
