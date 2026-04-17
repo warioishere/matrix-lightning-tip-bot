@@ -88,8 +88,17 @@ used for creating lightning addresses without the bearer token:
 --lnbits-bearer-token=<LNBITS-BEARER-TOKEN>            # Bearer token for your LNbits instance. Use it in the Authorization header.
 --lnbits-api-key=<API KEY>                             # Used for creating lightning addresses without the bearer token
 --database-url=/data/db/tipbot.db                      # The absolute path to your generated db.
+--store-path=/data/crypto                              # Directory for the persistent matrix-sdk state + crypto store. Required.
 --allowed-matrix-server=https://matrix.my-matrixserver.org  # Allow user from other matrix servers to use your bot, if not set, all servers are allowed (optional, repeat multiple times)
 ```
+
+The `--store-path` directory holds the bot's Matrix session, device keys and
+cross-signing keys across restarts. On the first start the bot generates a
+random passphrase in `<store-path>/.passphrase`, logs in once with
+username/password, saves the session to `<store-path>/session.json` and
+bootstraps cross-signing so it self-signs its own device. Subsequent starts
+restore the session from that directory — the bot keeps the same `device_id`
+and clients no longer flag the bot's own device as "not verified by owner".
 
 ### Running
 For example run: 
@@ -100,10 +109,23 @@ docker run -d \
   --restart always \
   -v /opt/lntipbot/data/config/config.conf:/data/config/config.conf \
   -v /opt/lntipbot/data/db/tipbot.db:/data/db/tipbot.db \
+  -v /opt/lntipbot/data/crypto:/data/crypto \
   matrix-lightning-tip-bot matrix-lightning-tip-bot @/data/config/config.conf
 ```
 
-to start the MLTB container.
+to start the MLTB container. Make sure `/opt/lntipbot/data/crypto` exists on
+the host (`mkdir -p /opt/lntipbot/data/crypto`) before the first start — it
+has to be a directory, not a file, because the bot writes multiple files into
+it (sqlite store, `session.json`, `.passphrase`).
+
+### Upgrading from a version without `--store-path`
+
+When you upgrade an existing bot to a build that persists its crypto state,
+the old `device_id` that lived only in memory is abandoned and a brand new
+device is created on the first start. To keep the bot's device list on the
+homeserver clean, log into the bot account once (for example in Element) and
+delete the old device before switching over. After that, the new persistent
+device is the only one that remains and stays stable across restarts.
 
 It is also possible to use the docker-compose file. This will require .env file containing the entries
 ```
