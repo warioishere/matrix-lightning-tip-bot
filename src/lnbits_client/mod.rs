@@ -65,7 +65,6 @@ pub mod lnbits_client {
     pub struct BitInvoice {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub payment_hash: Option<String>,
-        #[serde(rename = "payment_request", alias = "bolt11")]
         pub payment_request: String,
     }
 
