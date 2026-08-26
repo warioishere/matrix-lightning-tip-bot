@@ -215,8 +215,8 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_transactions(sender.as_str()).await,
                           "Could not process transactions")
             },
-            Command::LinkToZeusWallet { sender, is_direct } => {
-                try_with!(self.do_process_link_to_zeus_wallet(sender.as_str(), is_direct).await,
+            Command::LinkToZeusWallet { sender, is_direct, is_encrypted } => {
+                try_with!(self.do_process_link_to_zeus_wallet(sender.as_str(), is_direct, is_encrypted).await,
                           "Could not process link-to-zeus-wallet")
             },
             Command::Pay { sender, invoice } => {
@@ -568,7 +568,7 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(format!("My version is {:?}", env!("CARGO_PKG_VERSION")).as_str()))
     }
 
-    async fn do_process_link_to_zeus_wallet(&self, sender: &str, is_direct: bool) -> Result<CommandReply, SimpleError> {
+    async fn do_process_link_to_zeus_wallet(&self, sender: &str, is_direct: bool, is_encrypted: bool) -> Result<CommandReply, SimpleError> {
         log::info!("processing link-to-zeus-wallet command ..");
 
         // The lndhub url embeds the wallet admin key, which authorizes spending
@@ -579,6 +579,13 @@ impl BusinessLogicContext {
             return Ok(CommandReply::text_only(
                 "This command reveals your wallet's admin key, which lets anyone who sees it spend \
                  your whole balance. Send it to me in a direct chat, not in a shared room."));
+        }
+
+        // An unencrypted direct chat still exposes the key to both homeservers.
+        if !is_encrypted {
+            return Ok(CommandReply::text_only(
+                "This chat is not end-to-end encrypted, so your homeserver would see your wallet's \
+                 admin key and could spend your balance. Turn on encryption for this chat and try again."));
         }
 
         let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
@@ -1027,7 +1034,7 @@ mod tests {
         );
 
         let reply = ctx
-            .do_process_link_to_zeus_wallet("@alice:example.org", false)
+            .do_process_link_to_zeus_wallet("@alice:example.org", false, true)
             .await
             .unwrap();
 
@@ -1036,6 +1043,18 @@ mod tests {
         assert!(text.contains("direct chat"));
         assert!(reply.image.is_none(), "credential qr code reached a shared room");
         assert!(reply.admin_key.is_none());
+
+        // A direct chat without encryption is refused as well: both homeservers
+        // would otherwise see the key in cleartext.
+        let reply = ctx
+            .do_process_link_to_zeus_wallet("@alice:example.org", true, false)
+            .await
+            .unwrap();
+
+        let text = reply.text.unwrap();
+        assert!(!text.contains("lndhub://"), "credential url reached an unencrypted chat");
+        assert!(text.contains("not end-to-end encrypted"));
+        assert!(reply.image.is_none());
     }
 
     #[test]

@@ -18,7 +18,7 @@ pub enum Command  {
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
-    LinkToZeusWallet { sender: String, is_direct: bool },
+    LinkToZeusWallet { sender: String, is_direct: bool, is_encrypted: bool },
     BoltzOnchainToOffchain { sender: String, amount: u64, refund_address: String },
     BoltzOffchainToOnchain { sender: String, amount: u64, onchain_address: String },
     Refund { sender: String, swap_id: String },
@@ -186,8 +186,8 @@ pub fn transactions(sender: &str) -> Result<Command, SimpleError> {
     Ok(Command::Transactions { sender: sender.to_string() })
 }
 
-pub fn link_to_zeus_wallet(sender: &str, is_direct: bool) -> Result<Command, SimpleError> {
-    Ok(Command::LinkToZeusWallet { sender: sender.to_string(), is_direct })
+pub fn link_to_zeus_wallet(sender: &str, is_direct: bool, is_encrypted: bool) -> Result<Command, SimpleError> {
+    Ok(Command::LinkToZeusWallet { sender: sender.to_string(), is_direct, is_encrypted })
 }
 
 pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, SimpleError> {

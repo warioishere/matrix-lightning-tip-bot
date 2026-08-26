@@ -130,7 +130,7 @@ pub mod matrix_bot {
             Some("tip") => tip("", msg.as_str(), "").map(Some),
             Some("balance") => balance("").map(Some),
             Some("transactions") => transactions("").map(Some),
-            Some("link-to-zeus-wallet") => link_to_zeus_wallet("", false).map(Some),
+            Some("link-to-zeus-wallet") => link_to_zeus_wallet("", false, false).map(Some),
             Some("send") => send("", msg.as_str()).map(Some),
             Some("invoice") => invoice("", msg.as_str()).map(Some),
             Some("pay") => pay("", msg.as_str()).map(Some),
@@ -186,7 +186,9 @@ pub mod matrix_bot {
             }
             Some(Command::Balance { .. }) => balance(sender),
             Some(Command::Transactions { .. }) => transactions(sender),
-            Some(Command::LinkToZeusWallet { .. }) => link_to_zeus_wallet(sender, is_direct),
+            Some(Command::LinkToZeusWallet { .. }) => {
+                link_to_zeus_wallet(sender, is_direct, room.encryption_state().is_encrypted())
+            }
             Some(Command::Send { .. }) => {
                 let msg_body = preprocess_send_message(&business_logic_contex, &extracted_msg_body, room).await;
                 match msg_body {
