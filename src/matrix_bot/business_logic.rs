@@ -401,7 +401,9 @@ impl BusinessLogicContext {
                 match res {
                     LnUrlResponse::LnUrlPayResponse(pay) => {
                         // Convert sats to msats
-                        let res = client.get_invoice(&pay, amount * 1_000, None, match memo {
+                        let amount_msat = amount.checked_mul(1_000)
+                            .ok_or_else(|| SimpleError::new("Amount is too large"))?;
+                        let res = client.get_invoice(&pay, amount_msat, None, match memo {
                             Some(memo) => Some(memo.as_str()),
                             None => None,
                         }).await.map_err(|e| SimpleError::from(e))?;
