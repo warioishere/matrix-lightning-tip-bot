@@ -539,6 +539,7 @@ pub struct LNBitsClient {
                 "bearer",
                 "api-key",
                 "sqlite::memory:",
+                "",
                 "Info",
                 None,
             )

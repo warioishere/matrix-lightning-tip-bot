@@ -853,6 +853,7 @@ mod tests {
             "token",
             "apikey",
             ":memory:",
+            "",
             "Info",
             None,
         );
@@ -877,6 +878,7 @@ mod tests {
             "token",
             "apikey",
             ":memory:",
+            "",
             "Info",
             None,
         );
@@ -903,6 +905,7 @@ mod tests {
             "token",
             "apikey",
             ":memory:",
+            "",
             "Info",
             None,
         );
