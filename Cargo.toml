@@ -26,7 +26,9 @@ qrcode-generator = "5.0.0"
 mime = "0.3.17"
 lightning-invoice = "0.33.2"
 tl = "0.7.8"
-lnurl-rs = "0.9.0"
+# Only the async client is used; the default "blocking" feature pulls ureq
+# with rustls 0.21, which carries three certificate-validation advisories.
+lnurl-rs = { version = "0.9.0", default-features = false, features = ["async", "async-https"] }
 pulldown-cmark = "0.13.0"
 
 
