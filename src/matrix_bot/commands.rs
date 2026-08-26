@@ -1,4 +1,5 @@
 use simple_error::{bail, SimpleError, try_with};
+use std::fmt;
 
 #[derive(Debug)]
 pub enum Command  {
@@ -17,14 +18,13 @@ pub enum Command  {
     FiatToSats { sender: String, amount: f64, currency: String },
     SatsToFiat { sender: String, amount: u64, currency: String },
     Transactions { sender: String },
-    LinkToZeusWallet { sender: String },
+    LinkToZeusWallet { sender: String, is_direct: bool },
     BoltzOnchainToOffchain { sender: String, amount: u64, refund_address: String },
     BoltzOffchainToOnchain { sender: String, amount: u64, onchain_address: String },
     Refund { sender: String, swap_id: String },
     None,
 }
 
-#[derive(Debug)]
 pub struct CommandReply {
     pub text: Option<String>,
     pub image: Option<Vec<u8>>,
@@ -34,6 +34,24 @@ pub struct CommandReply {
     pub receiver_message: Option<String>,
     pub swap_id: Option<String>,
     pub admin_key: Option<String>,
+}
+
+// Hand written so replies never carry wallet keys into the log. `text` can hold
+// the lndhub url from link-to-zeus-wallet, and in_key/admin_key are raw LNbits
+// credentials, so none of the three are printed.
+impl fmt::Debug for CommandReply {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandReply")
+            .field("text", &self.text.as_ref().map(|t| format!("<{} chars>", t.len())))
+            .field("image", &self.image.as_ref().map(|i| format!("<{} bytes>", i.len())))
+            .field("image_name", &self.image_name)
+            .field("payment_hash", &self.payment_hash)
+            .field("in_key", &self.in_key.as_ref().map(|_| "<redacted>"))
+            .field("receiver_message", &self.receiver_message)
+            .field("swap_id", &self.swap_id)
+            .field("admin_key", &self.admin_key.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 impl Command {
@@ -168,8 +186,8 @@ pub fn transactions(sender: &str) -> Result<Command, SimpleError> {
     Ok(Command::Transactions { sender: sender.to_string() })
 }
 
-pub fn link_to_zeus_wallet(sender: &str) -> Result<Command, SimpleError> {
-    Ok(Command::LinkToZeusWallet { sender: sender.to_string() })
+pub fn link_to_zeus_wallet(sender: &str, is_direct: bool) -> Result<Command, SimpleError> {
+    Ok(Command::LinkToZeusWallet { sender: sender.to_string(), is_direct })
 }
 
 pub fn boltz_onchain_to_offchain(sender: &str, text: &str) -> Result<Command, SimpleError> {

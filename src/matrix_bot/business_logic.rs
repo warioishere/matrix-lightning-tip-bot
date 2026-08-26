@@ -10,7 +10,7 @@ use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoicePar
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
 use crate::matrix_bot::utils::parse_lnurl;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use matrix_sdk::{Room, RoomMemberships, room::RoomMember};
@@ -114,13 +114,35 @@ impl BusinessLogicContext {
             room.members_no_sync(RoomMemberships::JOIN).await,
             "Could not get room members"
         );
-        let ids: HashMap<String, OwnedUserId> = members
-            .into_iter()
-            .map(|m| (m.user_id().localpart().to_string(), m.user_id().to_owned()))
-            .collect();
+        let ids = Self::member_ids_by_localpart(
+            members.into_iter().map(|m| m.user_id().to_owned()),
+        );
         let mut cache = self.member_cache.lock().await;
         cache.insert(room.room_id().to_owned(), ids);
         Ok(())
+    }
+
+    // Two federated members can share a localpart (@alice:good.org and
+    // @alice:evil.org). Keeping both under the same key would make a shorthand
+    // like `!send 100 @alice` silently resolve to whichever one was inserted
+    // last, so colliding localparts are dropped and the caller has to spell out
+    // the full matrix id.
+    fn member_ids_by_localpart<I>(ids: I) -> HashMap<String, OwnedUserId>
+    where
+        I: IntoIterator<Item = OwnedUserId>,
+    {
+        let mut map: HashMap<String, OwnedUserId> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for id in ids {
+            let localpart = id.localpart().to_string();
+            if map.insert(localpart.clone(), id).is_some() {
+                ambiguous.insert(localpart);
+            }
+        }
+        for localpart in &ambiguous {
+            map.remove(localpart);
+        }
+        map
     }
 
     pub async fn get_or_fetch_member_ids(&self, room: &Room) -> Result<HashMap<String, OwnedUserId>, SimpleError> {
@@ -139,10 +161,7 @@ impl BusinessLogicContext {
 
     #[cfg(test)]
     pub async fn insert_member_ids(&self, room_id: OwnedRoomId, ids: Vec<OwnedUserId>) {
-        let map: HashMap<String, OwnedUserId> = ids
-            .into_iter()
-            .map(|id| (id.localpart().to_string(), id))
-            .collect();
+        let map = Self::member_ids_by_localpart(ids);
         let mut cache = self.member_cache.lock().await;
         cache.insert(room_id, map);
     }
@@ -196,8 +215,8 @@ impl BusinessLogicContext {
                 try_with!(self.do_process_transactions(sender.as_str()).await,
                           "Could not process transactions")
             },
-            Command::LinkToZeusWallet { sender } => {
-                try_with!(self.do_process_link_to_zeus_wallet(sender.as_str()).await,
+            Command::LinkToZeusWallet { sender, is_direct } => {
+                try_with!(self.do_process_link_to_zeus_wallet(sender.as_str(), is_direct).await,
                           "Could not process link-to-zeus-wallet")
             },
             Command::Pay { sender, invoice } => {
@@ -547,8 +566,18 @@ impl BusinessLogicContext {
         Ok(CommandReply::text_only(format!("My version is {:?}", env!("CARGO_PKG_VERSION")).as_str()))
     }
 
-    async fn do_process_link_to_zeus_wallet(&self, sender: &str) -> Result<CommandReply, SimpleError> {
+    async fn do_process_link_to_zeus_wallet(&self, sender: &str, is_direct: bool) -> Result<CommandReply, SimpleError> {
         log::info!("processing link-to-zeus-wallet command ..");
+
+        // The lndhub url embeds the wallet admin key, which authorizes spending
+        // the whole balance. Bail out before it is ever built: the reply goes to
+        // the room the command came from, so in a shared room it would hand the
+        // key to every member and to anyone reading the history later.
+        if !is_direct {
+            return Ok(CommandReply::text_only(
+                "This command reveals your wallet's admin key, which lets anyone who sees it spend \
+                 your whole balance. Send it to me in a direct chat, not in a shared room."));
+        }
 
         let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
                                   "Could not load client");
@@ -940,5 +969,66 @@ mod tests {
     fn is_insufficient_balance_text_ignores_other_errors() {
         assert!(!BusinessLogicContext::is_insufficient_balance_text("Some other error"));
         assert!(!BusinessLogicContext::is_insufficient_balance_text("Payment failed"));
+    }
+
+    #[tokio::test]
+    async fn link_to_zeus_wallet_refuses_outside_direct_room() {
+        let config = Config::new(
+            "https://example.org",
+            "@bot:example.org",
+            "pass",
+            "https://lnbits",
+            "token",
+            "apikey",
+            ":memory:",
+            "",
+            "Info",
+            None,
+        );
+        let ctx = BusinessLogicContext::new(
+            LNBitsClient::new(&config),
+            DataLayer::new(&config),
+            &config,
+        );
+
+        let reply = ctx
+            .do_process_link_to_zeus_wallet("@alice:example.org", false)
+            .await
+            .unwrap();
+
+        let text = reply.text.unwrap();
+        assert!(!text.contains("lndhub://"), "credential url reached a shared room");
+        assert!(text.contains("direct chat"));
+        assert!(reply.image.is_none(), "credential qr code reached a shared room");
+        assert!(reply.admin_key.is_none());
+    }
+
+    #[test]
+    fn colliding_localparts_are_not_resolvable() {
+        let good = OwnedUserId::try_from("@alice:good.org").unwrap();
+        let evil = OwnedUserId::try_from("@alice:evil.org").unwrap();
+        let bob = OwnedUserId::try_from("@bob:good.org").unwrap();
+
+        let map = BusinessLogicContext::member_ids_by_localpart(vec![
+            good.clone(),
+            evil.clone(),
+            bob.clone(),
+        ]);
+
+        assert!(!map.contains_key("alice"), "ambiguous localpart still resolves");
+        assert_eq!(map.get("bob"), Some(&bob));
+    }
+
+    #[test]
+    fn command_reply_debug_hides_credentials() {
+        let mut reply = CommandReply::text_only("lndhub://admin:supersecret@example.org/lndhub/ext/");
+        reply.admin_key = Some("supersecret".to_string());
+        reply.in_key = Some("invoicekey".to_string());
+
+        let rendered = format!("{:?}", reply);
+
+        assert!(!rendered.contains("supersecret"), "admin key reached the log");
+        assert!(!rendered.contains("invoicekey"), "invoice key reached the log");
+        assert!(!rendered.contains("lndhub://"), "credential url reached the log");
     }
 }
