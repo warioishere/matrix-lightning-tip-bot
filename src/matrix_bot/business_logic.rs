@@ -839,7 +839,7 @@ impl BusinessLogicContext {
         let mut wallets = try_with!(self.lnbits_client.wallets(&lnbits_user).await,
                                            "Could not retrieve wallets");
         if wallets.len() != 1 {
-            bail!("Expected a single wallet got {:?}", wallets)
+            bail!("Expected a single wallet, got {}", wallets.len())
         }
         let wallet = wallets.remove(0);
 

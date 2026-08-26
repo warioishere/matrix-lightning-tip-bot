@@ -61,7 +61,7 @@ pub mod lnbits_client {
         pub payment_request: String,
     }
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Deserialize, Serialize)]
     pub struct Wallet {
         pub id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +74,22 @@ pub mod lnbits_client {
         pub user: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub balance: Option<u64>,
+    }
+
+    // Hand written: adminkey authorizes spending and inkey authorizes issuing
+    // invoices, so neither may end up in a log line through a stray {:?}.
+    impl std::fmt::Debug for Wallet {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Wallet")
+                .field("id", &self.id)
+                .field("admin", &self.admin)
+                .field("admin_key", &"<redacted>")
+                .field("in_key", &"<redacted>")
+                .field("name", &self.name)
+                .field("user", &self.user)
+                .field("balance", &self.balance)
+                .finish()
+        }
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -529,6 +545,25 @@ pub struct LNBitsClient {
     mod tests {
         use super::*;
         use httpmock::{Method::POST, MockServer};
+
+        #[test]
+        fn wallet_debug_hides_keys() {
+            let wallet = Wallet {
+                id: "w1".to_string(),
+                admin: None,
+                admin_key: "adminsecret".to_string(),
+                in_key: "invoicesecret".to_string(),
+                name: "wallet".to_string(),
+                user: "u1".to_string(),
+                balance: Some(42),
+            };
+
+            let rendered = format!("{:?}", wallet);
+
+            assert!(!rendered.contains("adminsecret"), "admin key reached the log");
+            assert!(!rendered.contains("invoicesecret"), "invoice key reached the log");
+            assert!(rendered.contains("w1"), "non-secret fields should stay readable");
+        }
 
         fn test_config(base_url: &str) -> Config {
             Config::new(
