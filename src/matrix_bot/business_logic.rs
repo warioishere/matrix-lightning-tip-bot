@@ -603,18 +603,28 @@ impl BusinessLogicContext {
         Ok(reply)
     }
 
+    // LUD-16 local parts are case insensitive, so normalise before storing or
+    // comparing: otherwise "Alice" and "alice" would each get their own row and
+    // the uniqueness check below could be walked around.
+    fn normalize_ln_address_username(username: &str) -> Option<String> {
+        let username = username.trim().to_ascii_lowercase();
+        let valid = !username.is_empty()
+            && username.len() <= 64
+            && username.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_')
+            });
+        if valid { Some(username) } else { None }
+    }
+
     async fn do_process_generate_ln_address(&self, sender: &str, username: &str) -> Result<CommandReply, SimpleError> {
         log::info!("processing generate ln address command ..");
 
-        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
-                                  "Could not load client");
-        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
-                                      "Could not load wallet");
-
-        let params = LnAddressRequest::new(username, &wallet.id);
-
-        let response = try_with!(self.lnbits_client.create_lnurl_address(&params).await,
-                                 "Could not create ln address");
+        let username = match Self::normalize_ln_address_username(username) {
+            Some(username) => username,
+            None => return Ok(CommandReply::text_only(
+                "A lightning address name may only contain a-z, 0-9, dot, dash and \
+                 underscore, and may be at most 64 characters long.")),
+        };
 
         let host = Url::parse(self.config.lnbits_url.as_str())
             .ok()
@@ -622,6 +632,27 @@ impl BusinessLogicContext {
             .unwrap_or_else(|| self.config.lnbits_url.clone());
 
         let ln_address = format!("{}@{}", username, host);
+
+        // Check before touching LNbits, so a rejected name leaves nothing behind.
+        // The owner is never named: that would expose who holds an address.
+        if let Some(owner) = self.data_layer.matrix_id_for_ln_address(ln_address.as_str()) {
+            return Ok(CommandReply::text_only(&if owner == sender {
+                format!("You already have {}.", ln_address)
+            } else {
+                format!("{} is already taken, please pick a different name.", ln_address)
+            }));
+        }
+
+        let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await,
+                                  "Could not load client");
+        let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await,
+                                      "Could not load wallet");
+
+        let params = LnAddressRequest::new(username.as_str(), &wallet.id);
+
+        let response = try_with!(self.lnbits_client.create_lnurl_address(&params).await,
+                                 "Could not create ln address");
+
         let date_created = Utc::now().to_string();
         let new_ln_address = NewLnAddress::new(
             sender,
@@ -1005,6 +1036,25 @@ mod tests {
         assert!(text.contains("direct chat"));
         assert!(reply.image.is_none(), "credential qr code reached a shared room");
         assert!(reply.admin_key.is_none());
+    }
+
+    #[test]
+    fn ln_address_username_is_normalised_and_validated() {
+        let ok = |s: &str| BusinessLogicContext::normalize_ln_address_username(s);
+
+        // Case is folded, so "Alice" cannot claim a second row next to "alice".
+        assert_eq!(ok("Alice"), Some("alice".to_string()));
+        assert_eq!(ok("  bob  "), Some("bob".to_string()));
+        assert_eq!(ok("a.b-c_1"), Some("a.b-c_1".to_string()));
+
+        // Anything that could forge a misleading address is refused.
+        assert_eq!(ok("evil@attacker.com"), None);
+        assert_eq!(ok("two words"), None);
+        assert_eq!(ok("sla/sh"), None);
+        assert_eq!(ok(""), None);
+        assert_eq!(ok("   "), None);
+        assert_eq!(ok(&"a".repeat(65)), None);
+        assert_eq!(ok(&"a".repeat(64)).is_some(), true);
     }
 
     #[test]

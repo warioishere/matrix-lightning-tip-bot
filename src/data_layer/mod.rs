@@ -64,6 +64,16 @@ pub mod data_layer {
                 .expect("Error saving ln address");
         }
 
+        pub fn matrix_id_for_ln_address(&self, ln_address_: &str) -> Option<String> {
+            let mut connection = self.establish_connection();
+            ln_addresses_dsl::ln_addresses
+                .filter(ln_addresses_dsl::ln_address.eq(ln_address_))
+                .select(ln_addresses_dsl::matrix_id)
+                .first::<String>(&mut connection)
+                .optional()
+                .expect("Error looking up ln address owner")
+        }
+
         pub fn ln_addresses_for_matrix_id(&self, matrix_id_: &str) -> Vec<LnAddress> {
             let mut connection = self.establish_connection();
             ln_addresses_dsl::ln_addresses
