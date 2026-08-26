@@ -761,26 +761,28 @@ impl BusinessLogicContext {
         Ok(reply)
     }
 
+    // Only the local part of the Matrix ID is used as the LNBits username, and
+    // LNBits caps it at 20 characters. Count characters rather than bytes: a
+    // localpart may hold multi-byte utf-8 and slicing mid-character would panic.
+    fn lnbits_user_name(matrix_id: &str) -> String {
+        let mut user_name = matrix_id.trim_start_matches('@');
+        if let Some((name, _)) = user_name.split_once(':') {
+            user_name = name;
+        }
+        user_name.chars().take(20).collect()
+    }
+
     async fn matrix_id2lnbits_id(&self, matrix_id: &str) -> Result<LNBitsId, SimpleError> {
         if !(self.data_layer.lnbits_id_exists_for_matrix_id(matrix_id)) {
 
-            // Only use the local part of the Matrix ID as the LNBits username
-            let mut user_name = matrix_id.trim_start_matches('@');
-            if let Some((name, _)) = user_name.split_once(':') {
-                user_name = name;
-            }
+            let user_name = Self::lnbits_user_name(matrix_id);
 
-            // LNBits usernames may have a maximum length of 20 characters
-            let user_name = if user_name.len() > 20 {
-                &user_name[..20]
-            } else {
-                user_name
-            };
+            // Keep the whole uuid. The bot never reuses this password - wallets are
+            // reached through the admin token and the lnbits user id - while the
+            // username is the matrix localpart and therefore public knowledge.
+            let password = Uuid::new_v4().simple().to_string();
 
-            let password_full = Uuid::new_v4().simple().to_string();
-            let password = &password_full[..8];
-
-            let create_user_args = CreateUserArgs::new(user_name, password);
+            let create_user_args = CreateUserArgs::new(user_name.as_str(), password.as_str());
             let result = self.lnbits_client.create_user_with_initial_wallet(&create_user_args).await;
             match  result {
                 Ok(result) => {
@@ -1003,6 +1005,21 @@ mod tests {
         assert!(text.contains("direct chat"));
         assert!(reply.image.is_none(), "credential qr code reached a shared room");
         assert!(reply.admin_key.is_none());
+    }
+
+    #[test]
+    fn lnbits_user_name_truncates_on_character_boundaries() {
+        // A 24-character localpart of 3-byte characters: byte-slicing at 20
+        // would land mid-character and panic.
+        let wide = "\u{4e2d}".repeat(24);
+        let name = BusinessLogicContext::lnbits_user_name(&format!("@{}:example.org", wide));
+        assert_eq!(name.chars().count(), 20);
+        assert!(name.len() > 20, "expected multi-byte characters to survive");
+
+        assert_eq!(
+            BusinessLogicContext::lnbits_user_name("@alice:example.org"),
+            "alice"
+        );
     }
 
     #[test]
