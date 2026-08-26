@@ -437,6 +437,8 @@ pub mod matrix_bot {
             if !store_path.exists() {
                 fs::create_dir_all(store_path).expect("could not create store-path directory");
             }
+            // Holds the crypto store and the session token.
+            restrict_permissions(store_path, 0o700);
 
             let passphrase = load_or_create_passphrase(store_path);
 
@@ -492,8 +494,8 @@ pub mod matrix_bot {
                 .expect("session must exist right after login");
             let serialized = serde_json::to_vec(&session)
                 .expect("failed to serialize session");
-            fs::write(&session_file, serialized)
-                .expect("failed to persist session file");
+            // Carries the access token, which is full control of the bot account.
+            write_secret_file(&session_file, &serialized);
             log::info!("Persisted new matrix session to {:?}", session_file);
 
             Ok(())
@@ -867,6 +869,39 @@ pub mod matrix_bot {
         }
     }
 
+    #[cfg(unix)]
+    pub(super) fn write_secret_file(path: &Path, contents: &[u8]) {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .expect("failed to open secret file");
+        file.write_all(contents).expect("failed to write secret file");
+        // mode() only applies when the file is created, so tighten an existing one.
+        restrict_permissions(path, 0o600);
+    }
+
+    #[cfg(not(unix))]
+    pub(super) fn write_secret_file(path: &Path, contents: &[u8]) {
+        fs::write(path, contents).expect("failed to write secret file");
+    }
+
+    #[cfg(unix)]
+    fn restrict_permissions(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(mode)) {
+            log::warn!("Could not restrict permissions on {:?}: {:?}", path, e);
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn restrict_permissions(_path: &Path, _mode: u32) {}
+
     fn load_or_create_passphrase(store_path: &Path) -> String {
         let passphrase_file = store_path.join(".passphrase");
         if passphrase_file.exists() {
@@ -880,8 +915,8 @@ pub mod matrix_bot {
             Uuid::new_v4().simple(),
             Uuid::new_v4().simple()
         );
-        fs::write(&passphrase_file, &passphrase)
-            .expect("failed to write generated store passphrase");
+        // Unlocks the crypto store next to it, so it must not be world readable.
+        write_secret_file(&passphrase_file, passphrase.as_bytes());
         log::info!(
             "Generated new store passphrase at {:?}",
             passphrase_file
@@ -893,6 +928,29 @@ pub mod matrix_bot {
 #[cfg(test)]
 mod tests {
     use super::matrix_bot::parse_command;
+
+    #[cfg(unix)]
+    #[test]
+    fn secret_files_are_not_world_readable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("tipbot-secret-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.json");
+
+        // Pre-create it world readable, so this also proves an existing file
+        // left behind by an older build gets tightened.
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        super::matrix_bot::write_secret_file(&path, b"token");
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "secret file is readable by other users");
+        assert_eq!(std::fs::read(&path).unwrap(), b"token");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
     use super::commands::Command;
     use tokio::time::Duration;
     use matrix_sdk::ruma::OwnedUserId;
