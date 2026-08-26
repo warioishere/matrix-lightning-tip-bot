@@ -25,6 +25,7 @@ uuid = { version = "1.10.0", features = ["serde", "v4"] }
 qrcode-generator = "5.0.0"
 mime = "0.3.17"
 lightning-invoice = "0.33.2"
+bitcoin = { version = "0.32", default-features = false, features = ["std"] }
 tl = "0.7.8"
 # Only the async client is used; the default "blocking" feature pulls ureq
 # with rustls 0.21, which carries three certificate-validation advisories.

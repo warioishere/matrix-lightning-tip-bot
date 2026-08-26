@@ -2613,6 +2613,7 @@ name = "matrix-lightning-tip-bot"
 version = "1.0.1"
 dependencies = [
  "argfile",
+ "bitcoin",
  "chrono",
  "clap",
  "diesel",

@@ -159,6 +159,9 @@ pub mod matrix_bot {
                              business_logic_contex: &BusinessLogicContext) -> Result<Command, SimpleError> {
         let raw = extracted_msg_body.msg_body.clone().unwrap().to_lowercase();
         let mut msg_body = last_line(raw.as_str());
+        // Bitcoin addresses and swap ids are case sensitive, so the lowercased
+        // copy above must not be used for the commands that carry them.
+        let cased_msg_body = last_line(extracted_msg_body.msg_body.clone().unwrap().as_str());
         let is_direct = room.is_direct().await.unwrap_or(false);
 
         if !is_direct && !msg_body.starts_with('!') {
@@ -216,9 +219,9 @@ pub mod matrix_bot {
             Some(Command::ShowLnAddresses { .. }) => show_ln_addresses(sender),
             Some(Command::FiatToSats { .. }) => fiat_to_sats(sender, msg_body.as_str()),
             Some(Command::SatsToFiat { .. }) => sats_to_fiat(sender, msg_body.as_str()),
-            Some(Command::BoltzOnchainToOffchain { .. }) => boltz_onchain_to_offchain(sender, msg_body.as_str()),
-            Some(Command::BoltzOffchainToOnchain { .. }) => boltz_offchain_to_onchain(sender, msg_body.as_str()),
-            Some(Command::Refund { .. }) => refund(sender, msg_body.as_str()),
+            Some(Command::BoltzOnchainToOffchain { .. }) => boltz_onchain_to_offchain(sender, cased_msg_body.as_str()),
+            Some(Command::BoltzOffchainToOnchain { .. }) => boltz_offchain_to_onchain(sender, cased_msg_body.as_str()),
+            Some(Command::Refund { .. }) => refund(sender, cased_msg_body.as_str()),
             _ => Ok(Command::None),
         }
     }

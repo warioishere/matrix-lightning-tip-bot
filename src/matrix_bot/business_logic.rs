@@ -9,7 +9,7 @@ use crate::data_layer::data_layer::{NewMatrixId2LNBitsId, NewLnAddress};
 use crate::lnbits_client::lnbits_client::{BitInvoice, CreateUserArgs, InvoiceParams, LNBitsUser, PaymentParams, PayError, Wallet, WalletInfo, LnAddressRequest};
 use crate::matrix_bot::commands::{Command, CommandReply};
 use crate::matrix_bot::matrix_bot::LNBitsId;
-use crate::matrix_bot::utils::parse_lnurl;
+use crate::matrix_bot::utils::{parse_lnurl, is_valid_bitcoin_address};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -730,6 +730,12 @@ impl BusinessLogicContext {
         if amount < 25_000 {
             return Ok(CommandReply::text_only("Minimum swap amount is 25000 sats"));
         }
+        // This is where the funds return if the swap fails, so refuse anything
+        // that does not parse rather than building a swap around a broken address.
+        if !is_valid_bitcoin_address(refund_address) {
+            return Ok(CommandReply::text_only(
+                "That refund address is not a valid bitcoin address. Please check it and try again."));
+        }
         let lnbits_id = try_with!(self.matrix_id2lnbits_id(sender).await, "Could not load client");
         let wallet = try_with!(self.lnbits_id2wallet(&lnbits_id).await, "Could not load wallet");
         let swap = try_with!(self.lnbits_client.boltz_create_swap(&wallet, amount, refund_address).await, "Could not create swap");
@@ -763,6 +769,10 @@ impl BusinessLogicContext {
     async fn do_process_boltz_offchain_to_onchain(&self, sender: &str, amount: u64, onchain_address: &str) -> Result<CommandReply, SimpleError> {
         if amount < 25_000 {
             return Ok(CommandReply::text_only("Minimum swap amount is 25000 sats"));
+        }
+        if !is_valid_bitcoin_address(onchain_address) {
+            return Ok(CommandReply::text_only(
+                "That is not a valid bitcoin address. Please check it and try again."));
         }
         {
             let mut map = self.pending_reverse_swaps.lock().await;
