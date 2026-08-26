@@ -604,7 +604,7 @@ pub mod matrix_bot {
                 let business_logic_contex = business_logic_contex.clone();
                 let bot_name = bot_name.clone();
                 let current_time = current_time.clone();
-                move |event: OriginalSyncRoomMessageEvent, room: Room|{
+                move |event: OriginalSyncRoomMessageEvent, client: Client, room: Room|{
                     let business_logic_contex = business_logic_contex.clone();
                     let bot_name = bot_name.clone();
                     async move {
@@ -616,7 +616,11 @@ pub mod matrix_bot {
                         log::info!("processing event {:?} ..", event);
 
                         let sender = event.sender.as_str();
-                        if event.sender.localpart() == business_logic_contex.config().matrix_username.as_str() {
+                        // Compare against the logged in account, not the configured
+                        // string: matrix-username accepts both a localpart and a full
+                        // user id, and the latter never matched, so the bot replied to
+                        // its own messages.
+                        if client.user_id().is_some_and(|own| own.as_str() == event.sender.as_str()) {
                             return;
                         }
                         if !sender_allowed(&event.sender, business_logic_contex.config()) {
