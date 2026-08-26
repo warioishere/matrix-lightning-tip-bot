@@ -508,15 +508,16 @@ pub struct LNBitsClient {
 
         pub async fn boltz_refund(&self, admin_key: &str, swap_id: &str) -> Result<serde_json::Value, reqwest::Error> {
             let headers = self.headers_with_key(admin_key);
-            let url = format!("{}/boltz/api/v1/swap/refund?swap_id={}", self.url, swap_id);
-            let response = self.client.post(url).headers(headers).send().await?.json::<serde_json::Value>().await?;
+            let url = format!("{}/boltz/api/v1/swap/refund", self.url);
+            // query() percent-encodes, so a swap id cannot append parameters of its own.
+            let response = self.client.post(url).headers(headers).query(&[("swap_id", swap_id)]).send().await?.json::<serde_json::Value>().await?;
             Ok(response)
         }
 
         pub async fn boltz_status(&self, admin_key: &str, swap_id: &str) -> Result<serde_json::Value, reqwest::Error> {
             let headers = self.headers_with_key(admin_key);
-            let url = format!("{}/boltz/api/v1/swap/status?swap_id={}", self.url, swap_id);
-            let response = self.client.post(url).headers(headers).send().await?.json::<serde_json::Value>().await?;
+            let url = format!("{}/boltz/api/v1/swap/status", self.url);
+            let response = self.client.post(url).headers(headers).query(&[("swap_id", swap_id)]).send().await?.json::<serde_json::Value>().await?;
             Ok(response)
         }
     }
